@@ -144,6 +144,7 @@ def optimize_hyperparameters(X, y):
         'colsample_bytree': [0.7, 0.8]
     }
     
+    
     print("\n--- STARTING HYPERPARAMETER OPTIMIZATION (Grid Search) ---")
     print("Testing combinations, this may take a few minutes...")
     
@@ -172,11 +173,28 @@ def train_and_evaluate(X, y, title="Classifier Results", show_matrix=True):
     num_class = len(np.unique(y))
     objective = 'binary:logistic' if num_class <= 2 else 'multi:softprob'
     
-    # Current configuration parameters
+    # # Current configuration parameters
+    # model = xgb.XGBClassifier(
+    #     objective=objective, n_estimators=500, max_depth=8, learning_rate=0.1,
+    #     gamma=0.1, subsample=0.8, colsample_bytree=0.8, device="cpu",  
+    #     eval_metric='logloss' if num_class <= 2 else 'mlogloss'
+    # )
+
+    # המילון שקיבלת מהתוצאות
+    best_params = {
+        'colsample_bytree': 0.7, 
+        'learning_rate': 0.05, 
+        'max_depth': 4, 
+        'n_estimators': 500, 
+        'subsample': 0.7
+    }
+
+    # תיקון: שימוש ב-xgb.XGBClassifier והוספת הפרמטרים של המשימה
     model = xgb.XGBClassifier(
-        objective=objective, n_estimators=500, max_depth=8, learning_rate=0.1,
-        gamma=0.1, subsample=0.8, colsample_bytree=0.8, device="cpu",  
-        eval_metric='logloss' if num_class <= 2 else 'mlogloss'
+        objective=objective,
+        eval_metric='logloss' if num_class <= 2 else 'mlogloss',
+        device="cpu",
+        **best_params
     )
     
     model.fit(X_train, y_train)
