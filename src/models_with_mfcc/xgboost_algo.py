@@ -7,10 +7,11 @@ from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc, precision_recall_curve, ConfusionMatrixDisplay
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-import joblib
+import pickle
 
-def save_trained_model(model, filename="drone_binary_model.joblib"):
-    joblib.dump(model, filename)
+def save_trained_model_as_pickle(model, filename="2s_model_omesi.pkl"):
+    with open(filename, 'wb') as file:
+        pickle.dump(model, file)
     print(f"Model saved successfully as {filename}")
 
 def print_detailed_errors(y_test, preds, show_matrix=True):
@@ -214,7 +215,9 @@ def train_and_evaluate(X, y, title="Classifier Results", show_matrix=True):
 
 
 # --- CONFIGURATION ---
+# BASE_DATA_DIR = r"/Users/deviceone/Downloads/new_balanced_2s_dataset_551_device_1"
 BASE_DATA_DIR = r"/Users/deviceone/Downloads/new_balanced_2s_dataset_omesi"
+
 
 binary_map = {
     0: ['background'], 
@@ -233,8 +236,8 @@ if __name__ == "__main__":
     )
 
     model_dir = r"/Users/deviceone/Documents/d_detection/models"
-    model_out_path = os.path.join(model_dir, "2s_model_omesi.joblib")
-    save_trained_model(model_bin, model_out_path)
+    model_out_path = os.path.join(model_dir, "2s_model_omesi.pickle")
+    save_trained_model_as_pickle(model_bin, model_out_path)
     
     fpr, tpr, thresholds = plot_log_roc_curve(model_bin, x_test, y_test, target_class_index=1)
 
@@ -243,4 +246,4 @@ if __name__ == "__main__":
     # (To activate: uncomment the two lines below by removing the '#')
     # ----------------------------------------------------------------------
     # best_model = optimize_hyperparameters(X_bin, y_bin)
-    # save_trained_model(best_model, os.path.join(model_dir, "optimized_model.joblib"))
+    # save_trained_model_as_pickle(best_model, os.path.join(model_dir, "optimized_model.pickle"))

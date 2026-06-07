@@ -8,7 +8,7 @@ from tqdm import tqdm
 # --- הגדרות נתיבים ---
 AUDIO_DIR = r"/Users/deviceone/Downloads/2026.05.01_omesi"
 CSV_DIR = r"/Users/deviceone/Downloads/tagged_2026.05.01_omesi"         # התיקייה שבה נמצאים כל קבצי ה-csv
-OUTPUT_DIR = r"/Users/deviceone/Downloads/new_balanced_2s_dataset_omesi" # לאן להציל את התוצאות
+OUTPUT_DIR = r"/Users/deviceone/Downloads/new_balanced_2s_dataset" # לאן להציל את התוצאות
 
 SEGMENT_DURATION = 2.0 
 SR = 16000 
