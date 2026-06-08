@@ -93,65 +93,73 @@ def extract_features_vectorized(file_path):
     Optimized feature extraction for drones: Uses linear spectrogram (STFT),
     Chroma features for blade harmonic matching, and advanced spectral descriptors.
     """
-    # טעינת השמע בתדר דגימה קבוע ונרמול עוצמה
     y, sr = librosa.load(file_path, sr=16000, mono=True)
     y = y / (np.max(y) + 1e-5)
     
     features = []
-    
-    # 1. ספקטרוגרמה ליניארית (STFT Magnitude) - שומרת על רזולוציית תדרים גבוהה ואחידה
     stft = np.abs(librosa.stft(y, n_fft=2048, hop_length=512))
-    
-    # 2. מאפייני כרומה (Chroma) - מעולה לזיהוי יחסים הרמוניים קבועים של מנועי הרחפן
     chroma = librosa.feature.chroma_stft(S=stft, sr=sr)
     
-    # 3. מאפיינים ספקטרליים מורחבים
     centroid = librosa.feature.spectral_centroid(S=stft, sr=sr)
     flatness = librosa.feature.spectral_flatness(S=stft)
     rolloff = librosa.feature.spectral_rolloff(S=stft, sr=sr, roll_percent=0.85)
     
-    # חילוץ ממוצע וסטיית תקן לאורך זמן עבור המטריצות (STFT ו-Chroma)
     for feat in [stft, chroma]:
         features.extend(np.mean(feat, axis=1))
         features.extend(np.std(feat, axis=1))
         
-    # הוספת סטטיסטיקות עבור הווקטורים החד-ממדיים
     features.extend([
         np.mean(centroid), np.std(centroid), 
         np.mean(flatness), np.std(flatness),
         np.mean(rolloff), np.std(rolloff)
     ])
     
-    # 4. שמירה על 5 מקדמי MFCC בלבד לטובת ייצוג "צבע" הרקע הכללי (מעטפת ספקטרלית גסה)
     mfccs = librosa.feature.mfcc(S=librosa.amplitude_to_db(stft + 1e-5), sr=sr, n_mfcc=5)
     features.extend(np.mean(mfccs, axis=1))
     features.extend(np.std(mfccs, axis=1))
     
     return np.array(features)
 
-def prepare_data(base_path, label_folder_map):
+def prepare_data(base_paths, label_folder_map):
+    """
+    Prepared data from MULTIPLE base directories.
+    Loops through all base paths and extracts features for matching folders.
+    """
     X, y = [], []
     folder_to_label = {folder: label for label, folders in label_folder_map.items() for folder in folders}
     
-    for folder, label in folder_to_label.items():
-        folder_path = os.path.join(base_path, folder)
-        files = glob.glob(os.path.join(folder_path, "*.wav"))
-        print(f"Loading {len(files)} files for label: {label} (from {folder})")
+    # הגנה: אם הועבר נתיב בודד כמחרוזת, נהפוך אותו לרשימה
+    if isinstance(base_paths, str):
+        base_paths = [base_paths]
         
-        for f in tqdm(files):
-            try:
-                feat = extract_features_vectorized(f)
-                X.append(feat)
-                y.append(label)
-            except Exception as e:
-                print(f"Error processing {f}: {e}")
+    for base_path in base_paths:
+        print(f"\n--- Scanning Base Directory: {base_path} ---")
+        
+        for folder, label in folder_to_label.items():
+            folder_path = os.path.join(base_path, folder)
+            
+            # בדיקה אם תת-התיקייה קיימת בתוך תיקיית הבסיס הנוכחית
+            if not os.path.exists(folder_path):
+                print(f"Skipping: '{folder}' folder not found in {base_path}")
+                continue
+                
+            files = glob.glob(os.path.join(folder_path, "*.wav"))
+            if len(files) == 0:
+                print(f"No .wav files found in {folder_path}")
+                continue
+                
+            print(f"Loading {len(files)} files for label: {label} (from {folder})")
+            
+            for f in tqdm(files):
+                try:
+                    feat = extract_features_vectorized(f)
+                    X.append(feat)
+                    y.append(label)
+                except Exception as e:
+                    print(f"Error processing {f}: {e}")
     return np.array(X), np.array(y)
 
 def optimize_hyperparameters(X, y):
-    """
-    Runs GridSearchCV to find the best XGBoost parameters 
-    based on the F1-score metric.
-    """
     X_train, _, y_train, _ = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     
     base_model = xgb.XGBClassifier(
@@ -160,7 +168,6 @@ def optimize_hyperparameters(X, y):
         eval_metric='logloss'
     )
     
-    # Hyperparameter grid matrix
     param_grid = {
         'max_depth': [4, 6, 8],
         'learning_rate': [0.01, 0.05, 0.1],
@@ -170,7 +177,6 @@ def optimize_hyperparameters(X, y):
     }
     
     print("\n--- STARTING HYPERPARAMETER OPTIMIZATION (Grid Search) ---")
-    print("Testing combinations, this may take a few minutes...")
     
     grid_search = GridSearchCV(
         estimator=base_model,
@@ -197,8 +203,6 @@ def train_and_evaluate(X, y, title="Classifier Results", show_matrix=True):
     num_class = len(np.unique(y))
     objective = 'binary:logistic' if num_class <= 2 else 'multi:softprob'
     
-    # המילון שקיבלת מהתוצאות הקודמות
-    # שים לב: כיוון ששינינו את הפיצ'רים, מומלץ להריץ מחדש אופטימיזציה (Option B) בהמשך.
     best_params = {
         'colsample_bytree': 0.7, 
         'learning_rate': 0.05, 
@@ -220,19 +224,29 @@ def train_and_evaluate(X, y, title="Classifier Results", show_matrix=True):
     print(f"\n--- {title} ---")
     print(classification_report(y_test, preds))
     
-    # Text terminal analysis in clean English
     print_detailed_errors(y_test, preds, show_matrix=show_matrix)
     
-    # Graphic display of the confusion matrix
     if show_matrix:
         plot_confusion_matrix_graphic(y_test, preds)
     
     return model, X_test, y_test
 
 
-# --- CONFIGURATION ---
-# BASE_DATA_DIR = r"/Users/deviceone/Downloads/data/omesi/new_balanced_2s_dataset_551_device_1"
-BASE_DATA_DIR = r"/Users/deviceone/Downloads/data/nasa_2/new_balanced_2s_dataset_nasa_2"
+# ======================================================================
+# 🛠️ הצירופים והניתובים שאת צריכה לשנות (CONFIGURATION)
+# ======================================================================
+
+# 1. רשימת תיקיות הבסיס שמהן תרצי לאסוף מידע (שני סוגים, סוג אחד, או מה שתרצי)
+DATA_DIRECTORIES = [
+    r"/Users/deviceone/Downloads/data/2026.04.28_omesi/new_balanced_2s_dataset_2026.04.28_omesi",
+    r"/Users/deviceone/Downloads/data/2026.05.01_omesi/new_balanced_2s_dataset",
+    r"/Users/deviceone/Downloads/data/dregon/new_balanced_2s_dataset_dregon",
+    r"/Users/deviceone/Downloads/data/nasa_2/new_balanced_2s_dataset_nasa_2",
+    r"/Users/deviceone/Downloads/data/tut/new_balanced_2s_dataset_tut",
+]
+
+# 2. ניתוב היעד לשמירת קובץ המודל המאומן (.pickle)
+MODEL_OUTPUT_DIR = r"/Users/deviceone/Documents/d_detection/models"
 
 
 binary_map = {
@@ -241,25 +255,32 @@ binary_map = {
 }
 
 if __name__ == "__main__":
-    # 1. טעינת הנתונים וחילוץ הפיצ'רים המשופרים (ללא דומיננטיות של MFCC)
-    X_bin, y_bin = prepare_data(BASE_DATA_DIR, binary_map)
+    # 1. טעינת הנתונים וחילוץ הפיצ'רים מכל התיקיות שברשימה
+    X_bin, y_bin = prepare_data(DATA_DIRECTORIES, binary_map)
     
-    # ----------------------------------------------------------------------
-    # 💡 OPTION A: Standard Training & Evaluation (Currently Active)
-    # ----------------------------------------------------------------------
-    model_bin, x_test, y_test = train_and_evaluate(
-        X_bin, y_bin, "Binary: Drone vs. Environment", show_matrix=True
-    )
-
-    model_dir = r"/Users/deviceone/Documents/d_detection/models"
-    model_out_path = os.path.join(model_dir, "2s_model_omesi.pickle")
-    save_trained_model_as_pickle(model_bin, model_out_path)
+    # בדיקה שנטענו נתונים משני הסוגים לפני תחילת האימון
+    unique_labels = np.unique(y_bin)
+    print(f"\nTotal samples loaded: {len(X_bin)}")
+    print(f"Labels found in dataset: {unique_labels}")
     
-    fpr, tpr, thresholds = plot_log_roc_curve(model_bin, x_test, y_test, target_class_index=1)
+    if len(unique_labels) < 2:
+        print("⚠️ Error: Dataset must contain both background and drone samples to train.")
+    else:
+        # ----------------------------------------------------------------------
+        # 💡 OPTION A: Standard Training & Evaluation
+        # ----------------------------------------------------------------------
+        model_bin, x_test, y_test = train_and_evaluate(
+            X_bin, y_bin, "Binary: Drone vs. Environment", show_matrix=True
+        )
 
-    # ----------------------------------------------------------------------
-    # 💡 OPTION B: Parameter Optimization Tuning
-    # מומלץ מאוד להריץ את זה (על ידי הורדת ה-#) כיוון שוקטור הפיצ'רים השתנה בגודלו ובמהותו!
-    # ----------------------------------------------------------------------
-    # best_model = optimize_hyperparameters(X_bin, y_bin)
-    # save_trained_model_as_pickle(best_model, os.path.join(model_dir, "optimized_model.pickle"))
+        # הרכבת הניתוב המלא עבור קובץ המודל
+        model_out_path = os.path.join(MODEL_OUTPUT_DIR, "2s_model_omesi.pickle")
+        save_trained_model_as_pickle(model_bin, model_out_path)
+        
+        fpr, tpr, thresholds = plot_log_roc_curve(model_bin, x_test, y_test, target_class_index=1)
+
+        # ----------------------------------------------------------------------
+        # 💡 OPTION B: Parameter Optimization Tuning (כבוי כברירת מחדל)
+        # ----------------------------------------------------------------------
+        # best_model = optimize_hyperparameters(X_bin, y_bin)
+        # save_trained_model_as_pickle(best_model, os.path.join(MODEL_OUTPUT_DIR, "optimized_model.pickle"))

@@ -89,10 +89,11 @@ if __name__ == '__main__':
     # מזהה התיקייה בדרייב (ניתן למצוא אותו ב-URL של התיקייה בדפדפן)
     # FOLDER_ID = "1mP6pV4lx13UXVgSh_zD8-qKajMj_9z3X" # nasa2
     # FOLDER_ID = "16yL-Uquw5oo0zuj8eI1vwqMLIMaHNHYr" # 551 device 1
-    FOLDER_ID = "1TZQOQRGElgZ_NBiDp_pbRnISkz-eAloj" # 551 device 2
+    # FOLDER_ID = "1TZQOQRGElgZ_NBiDp_pbRnISkz-eAloj" # 551 device 2
+    FOLDER_ID = "1Gt5r0INiGwcIxtI3Z-TZzHhdZYjxwmHG" # AuDrok from open source data
     
     # הנתיב המקומי במחשב שבו תרצו לשמור את התיקייה
-    LOCAL_DOWNLOAD_PATH = r"/Users/deviceone/Downloads/551_device_2"
+    LOCAL_DOWNLOAD_PATH = r"/Users/deviceone/Downloads"
     
     print("מתחיל בהורדת התיקייה...")
     download_folder(service, FOLDER_ID, LOCAL_DOWNLOAD_PATH)
