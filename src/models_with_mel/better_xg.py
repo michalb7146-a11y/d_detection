@@ -237,12 +237,21 @@ def train_and_evaluate(X, y, title="Classifier Results", show_matrix=True):
 # ======================================================================
 
 # 1. רשימת תיקיות הבסיס שמהן תרצי לאסוף מידע (שני סוגים, סוג אחד, או מה שתרצי)
+# DATA_DIRECTORIES = [
+#     r"/Users/deviceone/Downloads/data/2026.04.28_omesi/new_balanced_2s_dataset_2026.04.28_omesi",
+#     r"/Users/deviceone/Downloads/data/2026.05.01_omesi/new_balanced_2s_dataset",
+#     r"/Users/deviceone/Downloads/data/dregon/new_balanced_2s_dataset_dregon",
+#     r"/Users/deviceone/Downloads/data/nasa_2/new_balanced_2s_dataset_nasa_2",
+#     r"/Users/deviceone/Downloads/data/tut/new_balanced_2s_dataset_tut",
+# ]
+
 DATA_DIRECTORIES = [
     r"/Users/deviceone/Downloads/data/2026.04.28_omesi/new_balanced_2s_dataset_2026.04.28_omesi",
     r"/Users/deviceone/Downloads/data/2026.05.01_omesi/new_balanced_2s_dataset",
     r"/Users/deviceone/Downloads/data/dregon/new_balanced_2s_dataset_dregon",
     r"/Users/deviceone/Downloads/data/nasa_2/new_balanced_2s_dataset_nasa_2",
     r"/Users/deviceone/Downloads/data/tut/new_balanced_2s_dataset_tut",
+    r"/Users/deviceone/Downloads/data/2026.05.07_acoustics/new_balanced_2s_dataset_2026.05.07_acoustics"
 ]
 
 # 2. ניתוב היעד לשמירת קובץ המודל המאומן (.pickle)
