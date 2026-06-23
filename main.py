@@ -1,2 +1,2 @@
-import xgboost_algo
+import models_with_mfcc.xgboost_algo as xgboost_algo
 print(xgboost_algo.__version__)

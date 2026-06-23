@@ -1,111 +1,120 @@
 import os
-import pickle
-import librosa
+import glob
 import numpy as np
-import xgboost as xgb
+import pandas as pd
+import librosa
+from sklearn.metrics import confusion_matrix
+import xgboost as xgb  # או הספריה שבה שמרת את המודל שלך (למשל pickle / joblib)
+# לחילופין, אם שמרת ב-pickle: import pickle
 
-def extract_features_matrix(file_path, window_duration=2.0, sr=16000):
+# --- הגדרות נתיבים (עדכני לנתיבים שלך) ---
+# התיקייה שבה יושבים תתי-התיקיות של הדאטהסט הסופי (background ו-target_drone) שאת רוצה לבחון
+TEST_DATA_DIR = r"/Users/deviceone/Downloads/new_balanced_2s_dataset_551_device_1"
+MODEL_PATH = r"/Users/deviceone/Downloads/models/cascade_xgb_model.json" # נתיב למודל המאומן שלך
+
+SR = 16000
+
+def extract_features_from_file(wav_path):
     """
-    Loads the audio file, splits it into continuous 2-second windows,
-    and extracts features for ALL windows simultaneously into a single matrix.
+    פונקציית עזר לחילוץ הפיצ'רים מקובץ בודד של 2 שניות.
+    חשוב: פונקציה זו חייבת להיות זהה לחלוטין לדרך שבה חילצת פיצ'רים בזמן האימון!
+    (התאימי את הבלוק הזה בדיוק לפי הפיצ'רים שאת משתמשת בהם בקוד האימון שלך, 
+    למשל: MFCC, Mel-Spectrogram, השטחה ל-1D וכו').
     """
-    # 1. Load entire audio
-    y_full, _ = librosa.load(file_path, sr=sr, mono=True)
-    
-    window_samples = int(window_duration * sr)
-    total_samples = len(y_full)
-    
-    # Calculate how many full 2-second windows we can get
-    num_windows = total_samples // window_samples
-    if num_windows == 0:
-        raise ValueError("Audio file is shorter than 2 seconds!")
+    try:
+        y, sr = librosa.load(wav_path, sr=SR, mono=True)
         
-    # Truncate audio to fit exact number of windows and reshape into a matrix
-    # Shape will be: (num_windows, window_samples)
-    y_clipped = y_full[:num_windows * window_samples]
-    y_matrix = y_clipped.reshape(num_windows, window_samples)
-    
-    # 2. Vectorized Feature Extraction across all windows
-    # Normalize each row (window) independently
-    max_vals = np.max(np.abs(y_matrix), axis=1, keepdims=True) + 1e-5
-    y_matrix_norm = y_matrix / max_vals
-    
-    # Extract MFCCs for all rows at once using librosa's ability to handle matrices
-    # We apply the feature extraction across the axis of time
-    features_list = []
-    
-    print(f"⏳ Processing {num_windows} windows in parallel matrix operations...")
-    
-    # Loop only over the windows to extract features (highly optimized by Librosa)
-    for i in range(num_windows):
-        y_window = y_matrix_norm[i]
+        # דוגמה לחילוץ מל-ספקטרוגרמה (שני את זה לפי מה שיש לך בקוד האימון):
+        mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=64)
+        mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
         
-        mfccs = librosa.feature.mfcc(y=y_window, sr=sr, n_mfcc=13)
-        delta = librosa.feature.delta(mfccs)
-        delta2 = librosa.feature.delta(mfccs, order=2)
-        
-        window_feats = []
-        for feat in [mfccs, delta, delta2]:
-            window_feats.extend(np.mean(feat, axis=1))
-            window_feats.extend(np.std(feat, axis=1))
+        # השטחה לוקטור מאפיינים אחד
+        features = mel_spec_db.flatten()
+        return features
+    except Exception as e:
+        print(f"Error extracting features from {wav_path}: {e}")
+        return None
+
+def load_test_dataset():
+    """טוען את קבצי הבדיקה ומכין מערכים של פיצ'רים ותגיות אמת"""
+    X_test = []
+    y_true = []
+    
+    drone_dir = os.path.join(TEST_DATA_DIR, "target_drone")
+    bg_dir = os.path.join(TEST_DATA_DIR, "background")
+    
+    # 1. טעינת רחפנים (תגית 1)
+    drone_files = glob.glob(os.path.join(drone_dir, "*.wav"))
+    print(f"📦 Loading {len(drone_files)} drone files for testing...")
+    for wav_path in drone_files:
+        feats = extract_features_from_file(wav_path)
+        if feats is not None:
+            X_test.append(feats)
+            y_true.append(1)
             
-        centroid = librosa.feature.spectral_centroid(y=y_window, sr=sr)
-        flatness = librosa.feature.spectral_flatness(y=y_window)
-        window_feats.extend([np.mean(centroid), np.std(centroid), np.mean(flatness)])
+    # 2. טעינת רקע (תגית 0)
+    bg_files = glob.glob(os.path.join(bg_dir, "*.wav"))
+    print(f"📦 Loading {len(bg_files)} background files for testing...")
+    for wav_path in bg_files:
+        feats = extract_features_from_file(wav_path)
+        if feats is not None:
+            X_test.append(feats)
+            y_true.append(0)
+            
+    return np.array(X_test), np.array(y_true)
+
+def evaluate_thresholds():
+    # 1. טעינת הדאטה של הבדיקה
+    X_test, y_true = load_test_dataset()
+    if len(X_test) == 0:
+        print("❌ No test files loaded. Check your TEST_DATA_DIR paths.")
+        return
         
-        features_list.append(window_feats)
+    # 2. טעינת המודל המאומן
+    print("\n🤖 Loading trained XGBoost model...")
+    model = xgb.XGBClassifier()
+    model.load_model(MODEL_PATH)
+    # הערה: אם שמרת את המודל באמצעות pickle, החליפי את השורות למעלה ב:
+    # with open(MODEL_PATH, 'rb') as f:
+    #     model = pickle.load(f)
+
+    # 3. הרצת אינפרנס גולמי - קבלת הסתברויות (Probabilities) לכל חלון
+    print("🔮 Running inference on test set...")
+    # predict_proba מחזיר מערך של [הסתברות ל-0, הסתברות ל-1]. אנחנו צריכים את ההסתברות ל-1 (רחפן)
+    probabilities = model.predict_proba(X_test)[:, 1]
+
+    # 4. לולאת ספים לבדיקת ביצועים
+    thresholds_to_test = [0.3, 0.4, 0.5, 0.6]
+    
+    print("\n==================================================")
+    print("       🎯 THRESHOLD OPTIMIZATION REPORT          ")
+    print("==================================================")
+    
+    for thresh in thresholds_to_test:
+        # סיווג סופי לפי הסף הנוכחי
+        y_pred = (probabilities >= thresh).astype(int)
         
-    # Convert list of windows into a 2D Matrix of Shape: (Num_Windows, Num_Features)
-    # This is the "B over T" matrix he wanted
-    return np.array(features_list), num_windows
+        # חישוב מטריצת הבלבול
+        cm = confusion_matrix(y_true, y_pred)
+        
+        # חילוץ המדדים מתוך המטריצה
+        # cm[0,0] = True Negative (רקע שזוהה כרקע)
+        # cm[0,1] = False Positive (אזעקת שווא)
+        # cm[1,0] = False Negative (פספוס רחפן)
+        # cm[1,1] = True Positive (רחפן שזוהה כרחפן)
+        tn, fp, fn, tp = cm.ravel()
+        
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+        
+        print(f"\n📊 Results for Threshold = {thresh}:")
+        print(f"------------------------------------")
+        print(f"  [True Background]  Correct: {tn} | False Alarms (FA): {fp}")
+        print(f"  [True Drone     ]  Correct: {tp} | Missed Drones (MD): {fn}")
+        print(f"  --> Detection Rate (Recall): {recall*100:.2f}%")
+        print(f"  --> Precision: {precision*100:.2f}%")
+        
+    print("\n==================================================")
 
 if __name__ == "__main__":
-    MODEL_PATH = r"models/2s_model_omesi.pickle"
-    AUDIO_FILE_TO_TEST = r"/Users/deviceone/Downloads/session_20260430T180015_807/alsa_default.wav" 
-    
-    print("⏳ Loading XGBoost model from Pickle file...")
-    if not os.path.exists(MODEL_PATH):
-        print(f"❌ ERROR: Model file not found at: {MODEL_PATH}")
-        exit()
-        
-    with open(MODEL_PATH, 'rb') as file:
-        model = pickle.load(file)
-        
-    try:
-        if not os.path.exists(AUDIO_FILE_TO_TEST):
-            print(f"❌ ERROR: Audio file to test not found at: {AUDIO_FILE_TO_TEST}")
-            exit()
-            
-        # Extract the entire data matrix
-        data_matrix, num_windows = extract_features_matrix(AUDIO_FILE_TO_TEST)
-        
-        print(f"📊 Data Matrix Ready. Shape: {data_matrix.shape} (Windows x Features)")
-        print("🚀 Running Parallel Inference via XGBoost...")
-        
-        # --- PARALLEL INFERENCE (No loops!) ---
-        # XGBoost handles the entire matrix instantly in parallel
-        all_predictions = model.predict(data_matrix)
-        all_probabilities = model.predict_proba(data_matrix)
-        
-        # 3. Print Results Summary cleanly
-        print("\n==========================================")
-        print("📊 MATRIX DETECTION RESULTS SUMMARY:")
-        print("==========================================")
-        
-        for idx in range(num_windows):
-            time_start = idx * 2
-            time_end = time_start + 2
-            time_label = f"[{time_start:02d}s - {time_end:02d}s]"
-            
-            pred = all_predictions[idx]
-            prob = all_probabilities[idx]
-            
-            if pred == 1:
-                print(f"{time_label} 🚨 DRONE DETECTED! (Confidence: {prob[1]*100:.2f}%)")
-            else:
-                print(f"{time_label} ✅ CLEAN BACKGROUND (Confidence: {prob[0]*100:.2f}%)")
-                
-        print("==========================================\n")
-        
-    except Exception as e:
-        print(f"❌ ERROR during processing or inference: {e}")
+    evaluate_thresholds()

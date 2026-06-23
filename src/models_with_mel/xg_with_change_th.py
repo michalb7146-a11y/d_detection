@@ -64,19 +64,18 @@ def plot_log_roc_curve(model, X_test, y_test, target_class_index=1):
     plt.grid(True, which="both", ls="-", alpha=0.3)
     plt.show()
 
-    # --- תוספת: חישוב סף אוטומטי לפי אחוז אזעקות שווא רצוי ---
-    # נניח שאנחנו רוצים לכל היותר 1.5% אזעקות שווא (0.015)
-    max_allowed_fpr = 0.015 
-    idx = np.argmin(np.abs(fpr - max_allowed_fpr))
+    # --- עדכון: חישוב סף אוטומטי מבוסס על אחוז גילוי רצוי (Recall) למניעת פספוסים ---
+    # אנו שואפים ל-99% גילוי רחפנים (מוריד משמעותית את ה-False Negatives)
+    target_tpr = 0.99 
+    idx = np.argmin(np.abs(tpr - target_tpr))
     
     print("\n" + "="*50)
-    print("🎯 RECOMMENDED THRESHOLD BASED ON ROC CURVE:")
-    print(f"To achieve {fpr[idx]*100:.2f}% False Alarms:")
-    print(f"-> Detection Rate (TPR) will be: {tpr[idx]*100:.2f}%")
+    print("🎯 RECOMMENDED THRESHOLD BASED ON TARGET RECALL:")
+    print(f"To achieve {tpr[idx]*100:.2f}% Drone Detection (Recall):")
+    print(f"-> Expected False Alarms Rate (FPR) will be: {fpr[idx]*100:.2f}%")
     print(f"-> SET YOUR THRESHOLD TO: {thresholds[idx]:.4f}")
     print("="*50 + "\n")
     
-    # מחזירים גם את ה-thresholds וגם את הסף הספציפי שנבחר
     return fpr, tpr, thresholds, thresholds[idx]
 
 def plot_performance_curves(model, X_test, y_test, target_class_index=1):
@@ -142,7 +141,6 @@ def prepare_data(base_paths, label_folder_map):
     X, y = [], []
     folder_to_label = {folder: label for label, folders in label_folder_map.items() for folder in folders}
     
-    # הגנה: אם הועבר נתיב בודד כמחרוזת, נהפוך אותו לרשימה
     if isinstance(base_paths, str):
         base_paths = [base_paths]
         
@@ -152,7 +150,6 @@ def prepare_data(base_paths, label_folder_map):
         for folder, label in folder_to_label.items():
             folder_path = os.path.join(base_path, folder)
             
-            # בדיקה אם תת-התיקייה קיימת בתוך תיקיית הבסיס הנוכחית
             if not os.path.exists(folder_path):
                 print(f"Skipping: '{folder}' folder not found in {base_path}")
                 continue
@@ -182,12 +179,14 @@ def optimize_hyperparameters(X, y):
         eval_metric='logloss'
     )
     
+    # במידה ומריצים אופטימיזציה, כדאי להוסיף סביב איזה סקייל של משקולות רוצים לבדוק
     param_grid = {
         'max_depth': [4, 6, 8],
         'learning_rate': [0.01, 0.05, 0.1],
         'n_estimators': [300, 500],
         'subsample': [0.7, 0.8, 0.9],
-        'colsample_bytree': [0.7, 0.8]
+        'colsample_bytree': [0.7, 0.8],
+        'scale_pos_weight': [2.0, 3.0] # בדיקת משקולות מועדפות
     }
     
     print("\n--- STARTING HYPERPARAMETER OPTIMIZATION (Grid Search) ---")
@@ -217,12 +216,14 @@ def train_and_evaluate(X, y, title="Classifier Results", show_matrix=True):
     num_class = len(np.unique(y))
     objective = 'binary:logistic' if num_class <= 2 else 'multi:softprob'
     
+    # הוספת ה-scale_pos_weight למניעת פספוסי רחפנים (כאן מוגדר כ-5.0 כברירת מחדל אגרסיבית)
     best_params = {
         'colsample_bytree': 0.7, 
         'learning_rate': 0.05, 
         'max_depth': 4, 
         'n_estimators': 500, 
-        'subsample': 0.7
+        'subsample': 0.7,
+        'scale_pos_weight': 5.0  # <--- נותן משקל פי 5 לטעויות על סיווג רחפנים
     }
 
     model = xgb.XGBClassifier(
@@ -247,41 +248,18 @@ def train_and_evaluate(X, y, title="Classifier Results", show_matrix=True):
 
 
 # ======================================================================
-# 🛠️ הצירופים והניתובים שאת צריכה לשנות (CONFIGURATION)
+# 🛠️ CONFIGURATION
 # ======================================================================
 
-# 1. רשימת תיקיות הבסיס שמהן תרצי לאסוף מידע (שני סוגים, סוג אחד, או מה שתרצי)
-# DATA_DIRECTORIES = [
-#     r"/Users/deviceone/Downloads/data/2026.04.28_omesi/new_balanced_2s_dataset_2026.04.28_omesi",
-#     r"/Users/deviceone/Downloads/data/2026.05.01_omesi/new_balanced_2s_dataset",
-#     r"/Users/deviceone/Downloads/data/dregon/new_balanced_2s_dataset_dregon",
-#     r"/Users/deviceone/Downloads/data/nasa_2/new_balanced_2s_dataset_nasa_2",
-#     r"/Users/deviceone/Downloads/data/tut/new_balanced_2s_dataset_tut",
-# ]
-
 DATA_DIRECTORIES = [
-    r"/Users/deviceone/Documents/data/2026.04.28_omesi/slice_2s_overlap_2026.04.28_omesi",
-    r"/Users/deviceone/Documents/data/2026.05.01_omesi/slice_2s_overlap_2026.05.01_omesi",
-    r"/Users/deviceone/Documents/data/dregon/slice_2s_overlap_dregon",
-    r"/Users/deviceone/Documents/data/nasa_2/slice_2s_overlap_nasa_2",
-    r"/Users/deviceone/Documents/data/tut/slice_2s_overlap_tut",
+    r"/Users/deviceone/Downloads/data/2026.04.28_omesi/new_balanced_2s_dataset_2026.04.28_omesi",
+    r"/Users/deviceone/Downloads/data/2026.05.01_omesi/new_balanced_2s_dataset",
+    r"/Users/deviceone/Downloads/data/dregon/new_balanced_2s_dataset_dregon",
+    r"/Users/deviceone/Downloads/data/nasa_2/new_balanced_2s_dataset_nasa_2",
+    r"/Users/deviceone/Downloads/data/tut/new_balanced_2s_dataset_tut",
 ]
 
-# DATA_DIRECTORIES = [
-#     r"/Users/deviceone/Downloads/data/2026.04.28_omesi/new_balanced_2s_dataset_2026.04.28_omesi",
-#     r"/Users/deviceone/Downloads/data/2026.05.07_acoustics/new_balanced_2s_dataset_2026.05.07_acoustics",
-#     r"/Users/deviceone/Downloads/data/nasa_1/new_balanced_2s_dataset_nasa_1",
-#     r"/Users/deviceone/Downloads/data/nasa_2/new_balanced_2s_dataset_nasa_2",
-#     r"/Users/deviceone/Downloads/data/2026.05.14_field_recordings_omesi/new_balanced_2s_dataset_2026.05.14",
-#     r"/Users/deviceone/Downloads/data/2026.05.19_pardes/new_balanced_2s_dataset_2026.05.19_pardes",
-#     r"/Users/deviceone/Downloads/data/2026.05.28_pardes/new_balanced_2s_dataset_2026.05.28_pardes",
-    # r"/Users/deviceone/Downloads/data/dregon/new_balanced_2s_dataset_dregon",
-    # r"/Users/deviceone/Downloads/data/tut/new_balanced_2s_dataset_tut"
-# ]
-
-# 2. ניתוב היעד לשמירת קובץ המודל המאומן (.pickle)
 MODEL_OUTPUT_DIR = r"/Users/deviceone/Documents/d_detection/models"
-
 
 binary_map = {
     0: ['background'], 
@@ -289,10 +267,9 @@ binary_map = {
 }
 
 if __name__ == "__main__":
-    # 1. טעינת הנתונים וחילוץ הפיצ'רים מכל התיקיות שברשימה
+    # 1. טעינת הנתונים וחילוץ הפיצ'רים
     X_bin, y_bin = prepare_data(DATA_DIRECTORIES, binary_map)
     
-    # בדיקה שנטענו נתונים משני הסוגים לפני תחילת האימון
     unique_labels = np.unique(y_bin)
     print(f"\nTotal samples loaded: {len(X_bin)}")
     print(f"Labels found in dataset: {unique_labels}")
@@ -300,27 +277,29 @@ if __name__ == "__main__":
     if len(unique_labels) < 2:
         print("⚠️ Error: Dataset must contain both background and drone samples to train.")
     else:
-        # ----------------------------------------------------------------------
-        # 💡 OPTION A: Standard Training & Evaluation
-        # ----------------------------------------------------------------------
-        model_bin, x_test, y_test = train_and_evaluate(X_bin, y_bin, "Binary: Drone vs. Environment", show_matrix=True)
+        # 2. אימון המודל (לפי המשקולות שהגדרנו בתוך train_and_evaluate)
+        model_bin, x_test, y_test = train_and_evaluate(X_bin, y_bin, "Binary: Drone vs. Environment", show_matrix=False) # <--- שינינו ל-False כדי לא להציג את המטריצה של ה-0.5 הדיפולטי
+        
         model_out_path = os.path.join(MODEL_OUTPUT_DIR, "2s_model_omesi.pickle")
         save_trained_model_as_pickle(model_bin, model_out_path)
         
-        # עדכון השורה הזו כדי לקלוט את הסף המומלץ (chosen_threshold)
-        fpr, tpr, thresholds, chosen_threshold = plot_log_roc_curve(model_bin, x_test, y_test, target_class_index=1)
-
-        # --- תוספת: בדיקה איך מטריצת הבלבול משתנה עם הסף החדש ---
-        print(f"📊 Applying Custom Threshold ({chosen_threshold:.4f}) to Test Data...")
-        y_probs = model_bin.predict_proba(x_test)[:, 1]
-        custom_preds = (y_probs >= chosen_threshold).astype(int)
+        # 3. הפקת ההסתברויות הגולמיות מהמודל עבור נתוני הטסט (ערכים בין 0 ל-1)
+        y_probs = model_bin.predict_proba(x_test)[:, 1] # <--- הוספנו כאן כדי לשמור את הפרודקשן הלוגיסטי
         
-        # הדפסת התוצאות החדשות והצגת המטריצה המעודכנת
+        # 4. הרצת פונקציית ה-ROC לקבלת המלצה ראשונית
+        fpr, tpr, thresholds, auto_threshold = plot_log_roc_curve(model_bin, x_test, y_test, target_class_index=1)
+
+        # ======================================================================
+        # 🎯 כאן את מכוונת ידנית את ה-THRESHOLD!
+        # ======================================================================
+        # משחקים עם המספר הזה (למשל: 0.15, 0.25, 0.35) ובודקים את הטרייד-אוף בריצה
+        my_custom_threshold = 0.45  # <--- כאן המספר משתנה לפי הניסויים שלך!
+        
+        print(f"📊 Applying Custom Safety-First Threshold ({my_custom_threshold}) to Test Data...")
+        
+        # החיתוך בפועל: כל דגימה שההסתברות שלה מעל הסף נחשבת רחפן (1), כל השאר רקע (0)
+        custom_preds = (y_probs >= my_custom_threshold).astype(int) # <--- כאן מיושם הסף החדש שלך
+        
+        # 5. הדפסת התוצאות הסופיות והצגת המטריצה המעודכנת לפי הסף שלך
         print_detailed_errors(y_test, custom_preds, show_matrix=True)
         plot_confusion_matrix_graphic(y_test, custom_preds)
-
-        # ----------------------------------------------------------------------
-        # 💡 OPTION B: Parameter Optimization Tuning (כבוי כברירת מחדל)
-        # ----------------------------------------------------------------------
-        # best_model = optimize_hyperparameters(X_bin, y_bin)
-        # save_trained_model_as_pickle(best_model, os.path.join(MODEL_OUTPUT_DIR, "optimized_model.pickle"))

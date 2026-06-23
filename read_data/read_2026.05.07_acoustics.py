@@ -6,11 +6,18 @@ import soundfile as sf
 from tqdm import tqdm
 
 # --- הגדרות נתיבים חדשות ---
-# AUDIO_DIR מכילה תתי-תיקיות ובתוכן קבצי WAV
-AUDIO_DIR = r"/Users/deviceone/Downloads/data/2026.05.07_acoustics/audio"
-# CSV_DIR מכילה תתי-תיקיות עם שמות זהים/דומים ובתוכן קבצי CSV
-CSV_DIR = r"/Users/deviceone/Downloads/data/2026.05.07_acoustics/tagged_2026.05.07_acoustics"
-OUTPUT_DIR = r"/Users/deviceone/Downloads/data/2026.05.07_acoustics/new_balanced_2s_dataset_2026.05.07_acoustics"
+# AUDIO_DIR = r"/Users/deviceone/Downloads/data/2026.05.07_acoustics/audio"
+# CSV_DIR = r"/Users/deviceone/Downloads/data/2026.05.07_acoustics/tagged_2026.05.07_acoustics"
+# OUTPUT_DIR = r"/Users/deviceone/Downloads/data/2026.05.07_acoustics/new_balanced_2s_dataset_2026.05.07_acoustics"
+
+# AUDIO_DIR = r"//Users/deviceone/Downloads/data/nasa_1/audio"
+# CSV_DIR = r"/Users/deviceone/Downloads/data/nasa_1/tagged_nasa_1"
+# OUTPUT_DIR = r"/Users/deviceone/Downloads/data/nasa_1/new_balanced_2s_dataset_nasa_1"
+
+AUDIO_DIR = r"/Users/deviceone/Downloads/data/2026.05.19_pardes/audio"
+CSV_DIR = r"/Users/deviceone/Downloads/data/2026.05.19_pardes/tagged_2026.05.19_pardes"
+OUTPUT_DIR = r"/Users/deviceone/Downloads/data/2026.05.19_pardes/new_balanced_2s_dataset_2026.05.19_pardes"
+
 
 SEGMENT_DURATION = 2.0 
 SR = 16000 

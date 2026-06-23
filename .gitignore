@@ -219,3 +219,6 @@ __marimo__/
 
 token.json
 credentials.json
+
+.cache_data
+/cache_data

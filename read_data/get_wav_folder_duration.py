@@ -39,5 +39,5 @@ def get_total_wav_duration(folder_path):
     print(f"Total duration in hours (decimal): {total_hours_decimal:.2f} hours")
 
 # לשימוש בקוד, שנה את הנתיב למטה לנתיב של התיקייה שלך:
-folder_path = r"/Users/deviceone/Downloads/data/2026.05.07_acoustics/new_balanced_2s_dataset_2026.05.07_acoustics/target_drone"
+folder_path = r"/Users/deviceone/Documents/data/ESC-50/ESC-50_audio"
 get_total_wav_duration(folder_path)

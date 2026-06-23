@@ -5,9 +5,9 @@ import librosa
 import soundfile as sf
 from tqdm import tqdm
 
-AUDIO_DIR = r"/Users/deviceone/Downloads/551_device_1"
-CSV_DIR = r"/Users/deviceone/Downloads/tagged_device_1_11_5"
-OUTPUT_DIR = r"/Users/deviceone/Downloads/new_balanced_2s_dataset_551_device_1"
+AUDIO_DIR = r"/Users/deviceone/Downloads/data/2026.05.14_field_recordings_omesi/audio"
+CSV_DIR = r"/Users/deviceone/Downloads/data/2026.05.14_field_recordings_omesi/tagged_2026.05.14_field_recordings_omesi"
+OUTPUT_DIR = r"/Users/deviceone/Downloads/data/2026.05.14_field_recordings_omesi/new_balanced_2s_dataset_2026.05.14"
 
 SEGMENT_DURATION = 2.0 
 SR = 16000 
@@ -36,7 +36,6 @@ def parse_tsv_file(file_path):
     """קריאת קובץ ה-TSV/CSV המופרד בטאבים והחזרת רשימת זמנים"""
     drone_intervals = []
     try:
-        # ננסה לקרוא עם טאב, אם לא מצליח נבדוק אם זה פסיק רגיל
         df = pd.read_csv(file_path, sep=None, engine='python')
         df.columns = [col.strip() for col in df.columns]
         
@@ -81,12 +80,12 @@ def process_dataset():
         # חילוץ שם הקובץ הבסיסי (ללא הסיומת של ה-CSV)
         base_name = os.path.splitext(os.path.basename(meta_path))[0]
         
-        # חיפוש קובץ ה-WAV המתאים ישירות בתיקיית ה-AUDIO_DIR
-        wav_path = os.path.join(AUDIO_DIR, f"{base_name}.wav")
+        # --- שינוי 1: חיפוש קובץ flac במקום קובץ wav ---
+        audio_path = os.path.join(AUDIO_DIR, f"{base_name}.flac")
         
         # אם אין קובץ אודיו תואם, נדלג
-        if not os.path.exists(wav_path):
-            print(f"\nWarning: Audio file '{base_name}.wav' not found for metadata. Skipping.")
+        if not os.path.exists(audio_path):
+            print(f"\nWarning: Audio file '{base_name}.flac' not found for metadata. Skipping.")
             continue
             
         # חילוץ זמני הרחפנים
@@ -95,10 +94,11 @@ def process_dataset():
             drone_intervals = parse_tsv_file(meta_path)
             
         try:
-            y, sr = librosa.load(wav_path, sr=SR, mono=True)
+            # --- שינוי 2: טעינת ה-flac (librosa יודעת לקרוא flac באופן טבעי) ---
+            y, sr = librosa.load(audio_path, sr=SR, mono=True)
             total_duration = librosa.get_duration(y=y, sr=sr)
         except Exception as e:
-            print(f"\nError loading {wav_path}: {e}")
+            print(f"\nError loading {audio_path}: {e}")
             continue
 
         chunk_idx = 0

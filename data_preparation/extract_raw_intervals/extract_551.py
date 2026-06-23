@@ -5,21 +5,19 @@ import librosa
 import soundfile as sf
 from tqdm import tqdm
 
-# --- הגדרות נתיבים חדשות ---
-AUDIO_DIR = r"/Users/deviceone/Downloads/2026.05.13_nasa_2_2b9df7f6"
-CSV_DIR = r"/Users/deviceone/Downloads/tagged_2026.05.13_nasa_2_2b9df7f6"
-OUTPUT_DIR = r"/Users/deviceone/Downloads/new_balanced_2s_dataset_nasa2"
+# --- הגדרות נתיבים מעודכנות ---
+AUDIO_DIR = r"/Users/deviceone/Documents/data/551/551_device_1"
+CSV_DIR = r"/Users/deviceone/Documents/data/551/tagged_device_1_11_5"
+OUTPUT_DIR = r"/Users/deviceone/Documents/data/551/raw_extracted_segments_551" 
 
-SEGMENT_DURATION = 2.0 
 SR = 16000 
 
-DRONE_OUT = os.path.join(OUTPUT_DIR, "target_drone")
-BG_OUT = os.path.join(OUTPUT_DIR, "background")
+DRONE_OUT = os.path.join(OUTPUT_DIR, "raw_drone")
+BG_OUT = os.path.join(OUTPUT_DIR, "raw_background")
 os.makedirs(DRONE_OUT, exist_ok=True)
 os.makedirs(BG_OUT, exist_ok=True)
 
 def time_str_to_seconds(time_str):
-    """הופך פורמט של MM:SS.mmm או HH:MM:SS.mmm לשניות"""
     if pd.isna(time_str):
         return None
     try:
@@ -34,10 +32,8 @@ def time_str_to_seconds(time_str):
         return None
 
 def parse_tsv_file(file_path):
-    """קריאת קובץ ה-TSV/CSV המופרד בטאבים והחזרת רשימת זמנים"""
     drone_intervals = []
     try:
-        # ננסה לקרוא עם טאב, אם לא מצליח נבדוק אם זה פסיק רגיל
         df = pd.read_csv(file_path, sep=None, engine='python')
         df.columns = [col.strip() for col in df.columns]
         
@@ -51,46 +47,35 @@ def parse_tsv_file(file_path):
                 
                 if start_sec is not None:
                     if dur_sec is None or dur_sec <= 0:
-                        dur_sec = 4.0  # ברירת מחדל
+                        dur_sec = 4.0  
                     drone_intervals.append((start_sec, start_sec + dur_sec))
     except Exception as e:
         print(f"Error reading metadata file {file_path}: {e}")
-        
     return drone_intervals
 
-def slice_and_save(y, sr, start_time, end_time, output_folder, base_name, index):
+def save_full_segment(y, sr, start_time, end_time, output_folder, base_name, index):
     start_sample = int(start_time * sr)
     end_sample = int(end_time * sr)
-    
     if start_sample >= len(y) or start_sample == end_sample:
         return
-    
     chunk = y[start_sample:end_sample]
-    if len(chunk) < int(SEGMENT_DURATION * sr):
+    if len(chunk) == 0:
         return 
-        
-    out_filename = f"{base_name}_part_{index}.wav"
+    out_filename = f"{base_name}_seg_{index}.wav"
     out_path = os.path.join(output_folder, out_filename)
     sf.write(out_path, chunk, sr)
 
 def process_dataset():
-    # מוצא את כל קבצי ה-CSV או ה-TSV בתיקיית התיוגים השטוחה
     metadata_files = glob.glob(os.path.join(CSV_DIR, "*.csv")) + glob.glob(os.path.join(CSV_DIR, "*.tsv"))
     print(f"Found {len(metadata_files)} metadata files to process.")
 
-    for meta_path in tqdm(metadata_files, desc="Processing files"):
-        # חילוץ שם הקובץ הבסיסי (ללא הסיומת של ה-CSV)
+    for meta_path in tqdm(metadata_files, desc="Extracting raw intervals"):
         base_name = os.path.splitext(os.path.basename(meta_path))[0]
-        
-        # חיפוש קובץ ה-WAV המתאים ישירות בתיקיית ה-AUDIO_DIR
         wav_path = os.path.join(AUDIO_DIR, f"{base_name}.wav")
         
-        # אם אין קובץ אודיו תואם, נדלג
         if not os.path.exists(wav_path):
-            print(f"\nWarning: Audio file '{base_name}.wav' not found for metadata. Skipping.")
             continue
             
-        # חילוץ זמני הרחפנים
         drone_intervals = []
         if os.path.getsize(meta_path) > 0:
             drone_intervals = parse_tsv_file(meta_path)
@@ -104,48 +89,31 @@ def process_dataset():
 
         chunk_idx = 0
         
-        # תרחיש 1: אין רחפנים מתועדים בקובץ זה
+        # תרחיש 1: אין רחפנים - כל הקובץ הוא רקע מלא
         if not drone_intervals:
-            current_time = 0.0
-            while current_time + SEGMENT_DURATION <= total_duration:
-                slice_and_save(y, sr, current_time, current_time + SEGMENT_DURATION, BG_OUT, base_name, chunk_idx)
-                current_time += SEGMENT_DURATION
-                chunk_idx += 1
+            save_full_segment(y, sr, 0.0, total_duration, BG_OUT, base_name, chunk_idx)
         else:
-            # תרחיש 2: יש רחפנים - חותכים את מקטעי הרחפנים
+            # תרחיש 2: יש רחפנים - חילוץ גושי רחפנים מלאים
             for start, end in drone_intervals:
                 start_curr = min(start, total_duration)
                 end_curr = min(end, total_duration)
-                
-                current_time = start_curr
-                while current_time + SEGMENT_DURATION <= end_curr:
-                    slice_and_save(y, sr, current_time, current_time + SEGMENT_DURATION, DRONE_OUT, base_name, chunk_idx)
-                    current_time += SEGMENT_DURATION
-                    chunk_idx += 1
+                save_full_segment(y, sr, start_curr, end_curr, DRONE_OUT, base_name, chunk_idx)
+                chunk_idx += 1
             
-            # חיתוך מקטעי הרקע (הסרת זמני הרחפנים)
+            # חילוץ גושי הרקע המלאים
             drone_intervals.sort()
             bg_start = 0.0
-            
             for start, end in drone_intervals:
                 start_curr = min(start, total_duration)
-                current_time = bg_start
-                while current_time + SEGMENT_DURATION <= start_curr:
-                    slice_and_save(y, sr, current_time, current_time + SEGMENT_DURATION, BG_OUT, base_name, chunk_idx)
-                    current_time += SEGMENT_DURATION
-                    chunk_idx += 1
+                save_full_segment(y, sr, bg_start, start_curr, BG_OUT, base_name, chunk_idx)
+                chunk_idx += 1
                 bg_start = max(bg_start, end)
             
             bg_start_curr = min(bg_start, total_duration)
-            current_time = bg_start_curr
-            while current_time + SEGMENT_DURATION <= total_duration:
-                slice_and_save(y, sr, current_time, current_time + SEGMENT_DURATION, BG_OUT, base_name, chunk_idx)
-                current_time += SEGMENT_DURATION
-                chunk_idx += 1
+            if bg_start_curr < total_duration:
+                save_full_segment(y, sr, bg_start_curr, total_duration, BG_OUT, base_name, chunk_idx)
 
-    print("\n--- Data Preparation Finished! ---")
-    print(f"Drone segments saved to: {DRONE_OUT}")
-    print(f"Background segments saved to: {BG_OUT}")
+    print(f"\n--- Stage 1 Finished! Full raw intervals saved to: {OUTPUT_DIR} ---")
 
 if __name__ == "__main__":
     process_dataset()
