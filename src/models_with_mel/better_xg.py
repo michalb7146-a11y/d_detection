@@ -134,6 +134,59 @@ def extract_features_vectorized(file_path):
     
     return np.array(features)
 
+# import scipy.signal as signal
+
+# def extract_features_vectorized(file_path):
+#     """
+#     Optimized feature extraction for drones: Uses linear spectrogram (STFT),
+#     Chroma features for blade harmonic matching, and advanced spectral descriptors.
+#     Filtered to focus ONLY on frequencies between 200Hz and 8000Hz.
+#     """
+#     # 1. טעינת הקובץ ב-16,000 הרץ (נותן לנו טווח עליון של 8,000 הרץ)
+#     target_sr = 16000
+#     y, sr = librosa.load(file_path, sr=target_sr, mono=True)
+    
+#     # 2. סינון תדרים מתחת ל-200 הרץ באמצעות פילטר High-pass
+#     sos = signal.butter(10, 200, btype='highpass', fs=target_sr, output='sos')
+#     y = signal.sosfilt(sos, y)
+    
+#     # נרמול האות לאחר הסינון למניעת עיוותים
+#     y = y / (np.max(np.abs(y)) + 1e-5)
+    
+#     features = []
+    
+#     # 3. חישוב ה-STFT (מכיל תדרים מ-0 עד 8000 הרץ המחולקים ל-1025 "סלים")
+#     stft = np.abs(librosa.stft(y, n_fft=2048, hop_length=512))
+    
+#     # 4. חיתוך ה-STFT כך שיכיל רק תדרים החל מ-200 הרץ ומעלה
+#     # תדר כל סל (bin) מחושב לפי: bin_frequency = bin_index * (sr / n_fft)
+#     # עבור sr=16000 ו-n_fft=2048, כל סל הוא ~7.81 הרץ. 200 הרץ יוצא בערך סל מספר 26.
+#     start_bin = int(200 / (target_sr / 2048))
+#     stft_filtered = stft[start_bin:, :] # חותך את השורות של התדרים הנמוכים
+    
+#     # 5. חילוץ מאפיינים מהספקטרוגרמה המסוננת
+#     chroma = librosa.feature.chroma_stft(S=stft_filtered, sr=target_sr)
+#     centroid = librosa.feature.spectral_centroid(S=stft_filtered, sr=target_sr)
+#     flatness = librosa.feature.spectral_flatness(S=stft_filtered)
+#     rolloff = librosa.feature.spectral_rolloff(S=stft_filtered, sr=target_sr, roll_percent=0.85)
+    
+#     for feat in [stft_filtered, chroma]:
+#         features.extend(np.mean(feat, axis=1))
+#         features.extend(np.std(feat, axis=1))
+        
+#     features.extend([
+#         np.mean(centroid), np.std(centroid), 
+#         np.mean(flatness), np.std(flatness),
+#         np.mean(rolloff), np.std(rolloff)
+#     ])
+    
+#     # חישוב MFCCs על בסיס ה-STFT המוגבל שלנו
+#     mfccs = librosa.feature.mfcc(S=librosa.amplitude_to_db(stft_filtered + 1e-5), sr=target_sr, n_mfcc=5)
+#     features.extend(np.mean(mfccs, axis=1))
+#     features.extend(np.std(mfccs, axis=1))
+    
+#     return np.array(features)
+
 def prepare_data(base_paths, label_folder_map):
     """
     Prepared data from MULTIPLE base directories.

@@ -10,9 +10,13 @@ from tqdm import tqdm
 # CSV_DIR = r"/Users/deviceone/Documents/data/nasa_2/tagged_2026.05.13_nasa_2_2b9df7f6"
 # OUTPUT_DIR = r"/Users/deviceone/Documents/data/nasa_2/raw_extracted_segments_nasa_2" 
 
-UDIO_DIR = r"/Users/deviceone/Documents/data/tut/tut_audio"
-CSV_DIR = r""
-OUTPUT_DIR = r"/Users/deviceone/Documents/data/tut/raw_extracted_segments_tut" 
+# UDIO_DIR = r"/Users/deviceone/Documents/data/tut/tut_audio"
+# CSV_DIR = r""
+# OUTPUT_DIR = r"/Users/deviceone/Documents/data/tut/raw_extracted_segments_tut" 
+
+UDIO_DIR = r"/Users/deviceone/Documents/data/2026.06.01_fang/audio"
+CSV_DIR = r"/Users/deviceone/Documents/data/2026.06.01_fang/tagged_2026.06.01_fang"
+OUTPUT_DIR = r"/Users/deviceone/Documents/data/tut/raw_extracted_segments" 
 
 SR = 16000 
 

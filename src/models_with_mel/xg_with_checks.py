@@ -10,6 +10,91 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import pickle
 from collections import defaultdict
+import librosa.display
+
+def save_spectrogram(audio_path, output_png):
+    try:
+        y, sr = librosa.load(audio_path, sr=16000, mono=True)
+
+        D = librosa.amplitude_to_db(
+            np.abs(librosa.stft(y, n_fft=2048, hop_length=512)),
+            ref=np.max
+        )
+
+        plt.figure(figsize=(10, 4))
+
+        librosa.display.specshow(
+            D,
+            sr=sr,
+            hop_length=512,
+            x_axis='time',
+            y_axis='hz',
+            cmap='jet'
+        )
+
+        plt.colorbar(format='%+2.0f dB')
+        plt.title(os.path.basename(audio_path))
+        plt.tight_layout()
+
+        plt.savefig(output_png, dpi=150)
+        plt.close()
+
+    except Exception as e:
+        print(f"Failed saving spectrogram for {audio_path}: {e}")
+
+def save_error_spectrograms(
+        y_test,
+        y_probs,
+        custom_preds,
+        paths_test,
+        output_root="error_spectrograms"):
+
+    print("\n📂 Saving FA/MD spectrograms...")
+
+    os.makedirs(output_root, exist_ok=True)
+
+    for i in range(len(y_test)):
+
+        true_label = y_test[i]
+        pred_label = custom_preds[i]
+
+        file_path = paths_test[i]
+
+        parts = file_path.split(os.sep)
+
+        scenario = parts[-3] if len(parts) >= 3 else "Unknown"
+
+        if true_label == 0 and pred_label == 1:
+            error_type = "FA"
+            confidence = y_probs[i]
+
+        elif true_label == 1 and pred_label == 0:
+            error_type = "MD"
+            confidence = 1 - y_probs[i]
+
+        else:
+            continue
+
+        scenario_dir = os.path.join(
+            output_root,
+            scenario,
+            error_type
+        )
+
+        os.makedirs(scenario_dir, exist_ok=True)
+
+        file_name = os.path.splitext(
+            os.path.basename(file_path)
+        )[0]
+
+        png_path = os.path.join(
+            scenario_dir,
+            f"{file_name}_conf_{confidence:.3f}.png"
+)
+
+        save_spectrogram(file_path, png_path)
+
+    print("✅ Finished saving spectrograms.")
 
 def save_trained_model_as_pickle(model, filename="2s_model_omesi.pkl"):
     with open(filename, 'wb') as file:
@@ -308,6 +393,9 @@ if __name__ == "__main__":
         plot_confusion_matrix_graphic(y_test, custom_preds)
 
         analyze_model_errors(y_test, y_probs, custom_preds, paths_test)
+
+        save_error_spectrograms(y_test, y_probs, custom_preds, paths_test)
+
 
         # 📌 בניית שמות הפיצ'רים המעודכנת לצורך הגרף הסטטיסטי
         stft_len = 1025     # n_fft // 2 + 1

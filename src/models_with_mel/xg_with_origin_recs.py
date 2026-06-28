@@ -1,0 +1,399 @@
+import os
+import glob
+import numpy as np
+import librosa
+import xgboost as xgb
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc, ConfusionMatrixDisplay
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+import pickle
+from collections import defaultdict
+import librosa.display
+
+def save_spectrogram(audio_path, output_png):
+    try:
+        y, sr = librosa.load(audio_path, sr=16000, mono=True)
+        D = librosa.amplitude_to_db(np.abs(librosa.stft(y, n_fft=2048, hop_length=512)), ref=np.max)
+        plt.figure(figsize=(10, 4))
+        librosa.display.specshow(D, sr=sr, hop_length=512, x_axis='time', y_axis='hz', cmap='jet')
+        plt.colorbar(format='%+2.0f dB')
+        plt.title(os.path.basename(audio_path))
+        plt.tight_layout()
+        plt.savefig(output_png, dpi=150)
+        plt.close()
+    except Exception as e:
+        print(f"Failed saving spectrogram for {audio_path}: {e}")
+
+def save_error_spectrograms(y_test, y_probs, custom_preds, paths_test, output_root="error_spectrograms"):
+    print("\n📂 Saving FA/MD spectrograms...")
+    os.makedirs(output_root, exist_ok=True)
+    for i in range(len(y_test)):
+        true_label = y_test[i]
+        pred_label = custom_preds[i]
+        file_path = paths_test[i]
+        parts = file_path.split(os.sep)
+        
+        # זיהוי שם הניסוי/סנריו מתוך הנתיב (בהנחה שזה כמה שלבים אחורה במבנה החדש)
+        scenario = parts[-4] if len(parts) >= 4 else "Unknown"
+
+        if true_label == 0 and pred_label == 1:
+            error_type = "FA"
+            confidence = y_probs[i]
+        elif true_label == 1 and pred_label == 0:
+            error_type = "MD"
+            confidence = 1 - y_probs[i]
+        else:
+            continue
+
+        scenario_dir = os.path.join(output_root, scenario, error_type)
+        os.makedirs(scenario_dir, exist_ok=True)
+        file_name = os.path.splitext(os.path.basename(file_path))[0]
+        png_path = os.path.join(scenario_dir, f"{file_name}_window_{i}_conf_{confidence:.3f}.png")
+        save_spectrogram(file_path, png_path)
+    print("✅ Finished saving spectrograms.")
+
+def save_trained_model_as_pickle(model, filename="2s_model_omesi.pkl"):
+    with open(filename, 'wb') as file:
+        pickle.dump(model, file)
+    print(f"Model saved successfully as {filename}")
+
+def print_detailed_errors(y_test, preds, show_matrix=True):
+    if not show_matrix:
+        return
+    tn, fp, fn, tp = confusion_matrix(y_test, preds).ravel()
+    print("\n--- DETAILED ERROR ANALYSIS (Confusion Matrix) ---")
+    print(f"OK True Negatives  (Correct Background): {tn}")
+    print(f"XX False Positives (False Alarms):       {fp}")
+    print(f"XX False Negatives (Missed Detections):  {fn}")
+    print(f"OK True Positives  (Correct Drone):     {tp}\n")
+
+def plot_confusion_matrix_graphic(y_test, preds):
+    cm = confusion_matrix(y_test, preds)
+    fig, ax = plt.subplots(figsize=(6, 6))
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Background', 'Drone'])
+    disp.plot(cmap=plt.cm.Blues, values_format='d', ax=ax, colorbar=False)
+    plt.title("Confusion Matrix - Drone Detection Performance", fontsize=12, fontweight='bold', pad=15)
+    plt.xlabel("Predicted Label", fontsize=10, fontweight='bold')
+    plt.ylabel("True Label", fontsize=10, fontweight='bold')
+    plt.tight_layout()
+    plt.show()
+
+def plot_log_roc_curve(model, X_test, y_test, target_class_index=1):
+    y_probs = model.predict_proba(X_test)[:, target_class_index]
+    fpr, tpr, thresholds = roc_curve(y_test, y_probs)
+    roc_auc = auc(fpr, tpr)
+    
+    plt.figure(figsize=(10, 7))
+    plt.semilogx(fpr, tpr, color='darkorange', lw=2, label=f'Log ROC (area = {roc_auc:.4f})')
+    plt.semilogx(fpr, fpr, color='navy', lw=1, linestyle='--', label='Random Classifier')
+    
+    plt.xlim([0.001, 1.0]) 
+    plt.ylim([0.0, 1.05])
+    plt.yticks(np.arange(0, 1.05, 0.05))
+    plt.xlabel('False Positive Rate (Log Scale)')
+    plt.ylabel('True Positive Rate (Sensitivity)')
+    plt.title('Logarithmic ROC Curve (Focus on High Rejection)')
+    plt.legend(loc="lower right")
+    plt.grid(True, which="both", ls="-", alpha=0.3)
+    plt.show()
+
+    max_allowed_fpr = 0.015 
+    idx = np.argmin(np.abs(fpr - max_allowed_fpr))
+    
+    print("\n" + "="*50)
+    print("🎯 RECOMMENDED THRESHOLD BASED ON ROC CURVE:")
+    print(f"To achieve {fpr[idx]*100:.2f}% False Alarms:")
+    print(f"-> Detection Rate (TPR) will be: {tpr[idx]*100:.2f}%")
+    print(f"-> SET YOUR THRESHOLD TO: {thresholds[idx]:.4f}")
+    print("="*50 + "\n")
+    
+    return fpr, tpr, thresholds, thresholds[idx]
+
+def extract_windows_from_stft(file_path):
+    """
+    📌 SLIDING WINDOW STFT FEATURE EXTRACTION:
+    טוען קובץ ארוך, מחשב STFT מלא, ומפרק לחלונות של 2 שניות עם חפיפה של 75% בזיכרון.
+    """
+    target_sr = 16000
+    y, sr = librosa.load(file_path, sr=target_sr, mono=True)
+    y = y / (np.max(np.abs(y)) + 1e-5)
+    
+    # 1. חישוב STFT מורכב על כל הקובץ הארוך בבת אחת
+    stft_complex_full = librosa.stft(y, n_fft=2048, hop_length=512)
+    stft_full = np.abs(stft_complex_full)
+    
+    # 2. הגדרת פרמטרי החלון הנע (Sliding Window)
+    # בקצב דגימה 16000 וקפיצה 512, יש ~31.25 פריימים בשנייה. 2 שניות = 62 פריימים.
+    frames_per_2s = int((2 * target_sr) / 512) 
+    # חפיפה של 75% אומרת שנעים קדימה ב-25% בכל פעם
+    step_size = int(frames_per_2s * 0.25) 
+    
+    total_frames = stft_full.shape[1]
+    window_features = []
+    
+    # אם הקובץ קצר מדי מ-2 שניות, נדלג עליו
+    if total_frames < frames_per_2s:
+        return window_features
+
+    # 3. ריצה בלולאה על פני כל החלונות האפשריים בקובץ הארוך
+    for start_frame in range(0, total_frames - frames_per_2s + 1, step_size):
+        end_frame = start_frame + frames_per_2s
+        
+        # חיתוך המקטע הספציפי של ה-2 שניות הנוכחיות
+        stft = stft_full[:, start_frame:end_frame]
+        stft_complex = stft_complex_full[:, start_frame:end_frame]
+        
+        # --- חילוץ הפיצ'רים המתקדם עבור ה-2 שניות הללו ---
+        # רעיון 1: ניתוח פאזה ויציבות אקוסטית
+        phase = np.angle(stft_complex)
+        unwrapped_phase = np.unwrap(phase, axis=1)
+        phase_derivative = np.diff(unwrapped_phase, axis=1)
+        phase_std_per_freq = np.std(phase_derivative, axis=1)
+        
+        phase_stability_low = np.mean(phase_std_per_freq[0:128])       
+        phase_stability_mid = np.mean(phase_std_per_freq[384:512])     
+        phase_stability_high = np.mean(phase_std_per_freq[896:1024])   
+        
+        # רעיון 2: יחסי אנרגיה ברצועות תדר
+        low_band = stft[0:128, :]
+        mid_high_band = stft[384:512, :]
+        extreme_high_band = stft[896:1024, :]
+        
+        low_energy = np.mean(low_band) + 1e-5
+        mid_high_energy = np.mean(mid_high_band)
+        extreme_high_energy = np.mean(extreme_high_band)
+        
+        ratio_mid_low = mid_high_energy / low_energy          
+        ratio_extreme_low = extreme_high_energy / low_energy  
+        
+        # סטטיסטיקות STFT
+        stft_mean = np.mean(stft, axis=1)
+        stft_std = np.std(stft, axis=1)
+        
+        # מקדמי MFCC
+        mfccs = librosa.feature.mfcc(S=librosa.amplitude_to_db(stft + 1e-5), sr=target_sr, n_mfcc=5)
+        mfcc_mean = np.mean(mfccs, axis=1)
+        mfcc_std = np.std(mfccs, axis=1)
+        
+        # איחוד הוקטור
+        flat_features = np.concatenate([
+            stft_mean, stft_std,
+            mfcc_mean, mfcc_std,
+            [ratio_mid_low, ratio_extreme_low],
+            [phase_stability_low, phase_stability_mid, phase_stability_high]
+        ])
+        
+        window_features.append(flat_features)
+        
+    return window_features
+
+def prepare_data_raw(base_paths, label_folder_map):
+    """
+    טוען קבצים ארוכים וגולמיים מתוך תיקיות ה-raw, ומפרק דינמית בזיכרון לחלונות.
+    """
+    X, y, file_paths = [], [], []
+    
+    if isinstance(base_paths, str):
+        base_paths = [base_paths]
+        
+    for base_path in base_paths:
+        raw_base_path = os.path.join(base_path, "raw_extracted_segments")
+        print(f"\n--- Scanning Base Raw Directory: {raw_base_path} ---")
+        
+        for label, folders in label_folder_map.items():
+            for folder in folders:
+                folder_path = os.path.join(raw_base_path, folder)
+                if not os.path.exists(folder_path):
+                    continue
+                    
+                files = glob.glob(os.path.join(folder_path, "*.wav"))
+                if len(files) == 0:
+                    continue
+                    
+                print(f"Processing {len(files)} raw files from '{folder}' (Label: {label})")
+                for f in tqdm(files):
+                    try:
+                        # חילוץ רשימה של חלונות מתוך קובץ ארוך אחד
+                        feats_list = extract_windows_from_stft(f)
+                        for feat in feats_list:
+                            X.append(feat)
+                            y.append(label)
+                            file_paths.append(f) # נשמור את נתיב קובץ המקור לתיעוד שגיאות
+                    except Exception as e:
+                        print(f"Error processing {f}: {e}")
+                        
+    return np.array(X), np.array(y), np.array(file_paths)
+
+def analyze_model_errors(y_test, y_probs, custom_preds, paths_test):
+    print("\n" + "="*80)
+    print("🔍 DEEP ERROR ANALYSIS & SCENARIO BREAKDOWN")
+    print("="*80)
+
+    GREEN = '\033[92m'
+    PURPLE = '\033[95m'
+    RESET = '\033[0m'
+
+    scenario_stats = defaultdict(lambda: {'total': 0, 'fa_count': 0, 'md_count': 0, 'error_files': []})
+
+    for i in range(len(y_test)):
+        true_label = y_test[i]
+        pred_label = custom_preds[i]
+        prob = y_probs[i]
+        file_path = paths_test[i]
+        
+        parts = file_path.split(os.sep)
+        scenario = parts[-4] if len(parts) >= 4 else "Unknown"
+        scenario_stats[scenario]['total'] += 1
+        
+        if true_label == 0 and pred_label == 1:
+            scenario_stats[scenario]['fa_count'] += 1
+            scenario_stats[scenario]['error_files'].append({'path': file_path, 'type': '[FA]', 'conf': prob})
+        elif true_label == 1 and pred_label == 0:
+            scenario_stats[scenario]['md_count'] += 1
+            scenario_stats[scenario]['error_files'].append({'path': file_path, 'type': '[MD]', 'conf': 1 - prob})
+
+    scen_w, tot_w, fa_w, md_w = 45, 10, 18, 18
+    header = f"{'📋 SCENARIO SUMMARY':<{scen_w}} | {'TOTAL':<{tot_w}} | {'FALSE ALARMS (FA)':<{fa_w}} | {'MISSED DET. (MD)':<{md_w}}"
+    print(f"{GREEN}{header}{RESET}")
+    print(f"{GREEN}" + "-" * len(header) + f"{RESET}")
+    
+    for scenario, stats in scenario_stats.items():
+        total = stats['total']
+        fa = stats['fa_count']
+        md = stats['md_count']
+        fa_pct = (fa / total) * 100 if total > 0 else 0
+        md_pct = (md / total) * 100 if total > 0 else 0
+        fa_str = f"{fa} ({fa_pct:.1f}%)"
+        md_str = f"{md} ({md_pct:.1f}%)"
+        row_str = f"{scenario:<{scen_w}} | {total:<{tot_w}} | {fa_str:<{fa_w}} | {md_str:<{md_w}}"
+        print(f"{GREEN}{row_str}{RESET}")
+        
+    print(f"{GREEN}" + "=" * len(header) + f"{RESET}")
+    print("\n" + "="*80)
+    print("📂 DETAILED ERROR FILE LOGS")
+    print("="*80)
+
+    has_any_errors = False
+    for scenario, stats in scenario_stats.items():
+        if len(stats['error_files']) == 0:
+            continue
+        has_any_errors = True
+        print(f"\n🎬 SCENARIO: {PURPLE}{scenario}{RESET}")
+        print("-" * (len(scenario) + 11))
+        
+        stats['error_files'].sort(key=lambda x: x['conf'], reverse=True)
+        for err in stats['error_files']:
+            print(f"  {err['type']} [Conf: {err['conf']*100:.1f}%] {err['path']}")
+        print("." * 60)
+
+    if not has_any_errors:
+        print("\n🎉 No errors found in any scenario! Perfect classification.")
+    print("=" * 80 + "\n")
+
+def plot_feature_importance_debug(model, feature_names=None):
+    importances = model.feature_importances_
+    if feature_names is None:
+        feature_names = [f"Feature_{i}" for i in range(len(importances))]
+        
+    feat_df = pd.DataFrame({'Feature': feature_names, 'Importance': importances}).sort_values(by='Importance', ascending=False)
+    
+    print("\n📊 TOP 10 MOST IMPORTANT FEATURES (XGBoost Debugging):")
+    print("-" * 50)
+    for idx, row in feat_df.head(10).iterrows():
+        print(f"  {row['Feature']:<30} : {row['Importance']*100:.2f}%")
+    print("-" * 50)
+    
+    plt.figure(figsize=(11, 7))
+    top_n = feat_df.head(20)
+    plt.barh(top_n['Feature'][::-1], top_n['Importance'][::-1], color='teal', edgecolor='black', alpha=0.8)
+    plt.xlabel('Importance Score', fontweight='bold', labelpad=10)
+    plt.title('Top 20 Feature Importances - Advanced Audio Feature Analysis', fontsize=12, fontweight='bold', pad=15)
+    plt.grid(axis='x', linestyle='--', alpha=0.5)
+    plt.tight_layout()
+    plt.show()
+
+# ======================================================================
+# 🛠️ CONFIGURATION (הגדרת התיקיות החדשות)
+# ======================================================================
+
+DATA_DIRECTORIES = [
+    r"/Users/deviceone/Documents/data/2026.04.28_omesi",
+    r"/Users/deviceone/Documents/data/2026.05.01_omesi",
+    r"/Users/deviceone/Documents/data/dregon",
+    r"/Users/deviceone/Documents/data/nasa_2",
+    r"/Users/deviceone/Documents/data/tut",
+    r"/Users/deviceone/Documents/data/ESC-50"
+]
+
+MODEL_OUTPUT_DIR = r"/Users/deviceone/Documents/d_detection/models"
+
+# מיפוי המבנה החדש שביקשת
+binary_map = {
+    0: ['raw_background'], 
+    1: ['raw_drone']  
+}
+
+if __name__ == "__main__":
+    # שימוש בפונקציית הטעינה הגולמית החדשה
+    X_bin, y_bin, file_paths = prepare_data_raw(DATA_DIRECTORIES, binary_map)
+    unique_labels = np.unique(y_bin)
+    
+    if len(unique_labels) < 2:
+        print("⚠️ Error: Dataset must contain both background and drone samples to train.")
+    else:
+        print(f"\n✅ Data generation complete. Total 2-second windows extracted: {len(X_bin)}")
+        
+        X_train, X_test, y_train, y_test, paths_train, paths_test = train_test_split(
+            X_bin, y_bin, file_paths, test_size=0.2, random_state=42, stratify=y_bin
+        )
+        
+        best_params = {
+            'colsample_bytree': 0.7, 
+            'learning_rate': 0.05, 
+            'max_depth': 4, 
+            'n_estimators': 500, 
+            'subsample': 0.7
+        }
+
+        model_bin = xgb.XGBClassifier(
+            objective='binary:logistic', eval_metric='logloss', device="cpu", **best_params
+        )
+        
+        print("\n--- Training Model on Raw Windowed Data... ---")
+        model_bin.fit(X_train, y_train)
+        
+        preds = model_bin.predict(X_test)
+        print("\n--- Baseline Classifier Results (Threshold = 0.5) ---")
+        print(classification_report(y_test, preds))
+        
+        fpr, tpr, thresholds, chosen_threshold = plot_log_roc_curve(model_bin, X_test, y_test, target_class_index=1)
+        chosen_threshold = 0.90  # <-- תוסיפי את השורה הזו כאן בשביל שליטה ידנית!
+
+        print(f"📊 Applying Custom Threshold ({chosen_threshold:.4f}) to Test Data...")
+        y_probs = model_bin.predict_proba(X_test)[:, 1]
+        custom_preds = (y_probs >= chosen_threshold).astype(int)
+        
+        print_detailed_errors(y_test, custom_preds, show_matrix=True)
+        plot_confusion_matrix_graphic(y_test, custom_preds)
+
+        analyze_model_errors(y_test, y_probs, custom_preds, paths_test)
+        # save_error_spectrograms(y_test, y_probs, custom_preds, paths_test)
+
+        # בניית שמות הפיצ'רים לגרף
+        stft_len = 1025     
+        feature_names = []
+        feature_names += [f"STFT_Mean_{i}" for i in range(stft_len)]
+        feature_names += [f"STFT_Std_{i}" for i in range(stft_len)]
+        feature_names += [f"MFCC_Mean_{i}" for i in range(5)]
+        feature_names += [f"MFCC_Std_{i}" for i in range(5)]
+        feature_names += ["Ratio_Mid_Low_Energy", "Ratio_Extreme_Low_Energy"]
+        feature_names += ["Phase_Stability_Low", "Phase_Stability_Mid", "Phase_Stability_High"]
+
+        plot_feature_importance_debug(model_bin, feature_names=feature_names)
+
+        if not os.path.exists(MODEL_OUTPUT_DIR):
+            os.makedirs(MODEL_OUTPUT_DIR)
+        model_out_path = os.path.join(MODEL_OUTPUT_DIR, "2s_model_omesi.pickle")
+        save_trained_model_as_pickle(model_bin, model_out_path)
