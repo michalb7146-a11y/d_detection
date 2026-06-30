@@ -12,48 +12,6 @@ import pickle
 from collections import defaultdict
 import librosa.display
 
-def save_spectrogram(audio_path, output_png):
-    try:
-        y, sr = librosa.load(audio_path, sr=16000, mono=True)
-        D = librosa.amplitude_to_db(np.abs(librosa.stft(y, n_fft=2048, hop_length=512)), ref=np.max)
-        plt.figure(figsize=(10, 4))
-        librosa.display.specshow(D, sr=sr, hop_length=512, x_axis='time', y_axis='hz', cmap='jet')
-        plt.colorbar(format='%+2.0f dB')
-        plt.title(os.path.basename(audio_path))
-        plt.tight_layout()
-        plt.savefig(output_png, dpi=150)
-        plt.close()
-    except Exception as e:
-        print(f"Failed saving spectrogram for {audio_path}: {e}")
-
-def save_error_spectrograms(y_test, y_probs, custom_preds, paths_test, output_root="error_spectrograms"):
-    print("\n📂 Saving FA/MD spectrograms...")
-    os.makedirs(output_root, exist_ok=True)
-    for i in range(len(y_test)):
-        true_label = y_test[i]
-        pred_label = custom_preds[i]
-        file_path = paths_test[i]
-        parts = file_path.split(os.sep)
-        
-        # זיהוי שם הניסוי/סנריו מתוך הנתיב (בהנחה שזה כמה שלבים אחורה במבנה החדש)
-        scenario = parts[-4] if len(parts) >= 4 else "Unknown"
-
-        if true_label == 0 and pred_label == 1:
-            error_type = "FA"
-            confidence = y_probs[i]
-        elif true_label == 1 and pred_label == 0:
-            error_type = "MD"
-            confidence = 1 - y_probs[i]
-        else:
-            continue
-
-        scenario_dir = os.path.join(output_root, scenario, error_type)
-        os.makedirs(scenario_dir, exist_ok=True)
-        file_name = os.path.splitext(os.path.basename(file_path))[0]
-        png_path = os.path.join(scenario_dir, f"{file_name}_window_{i}_conf_{confidence:.3f}.png")
-        save_spectrogram(file_path, png_path)
-    print("✅ Finished saving spectrograms.")
-
 def save_trained_model_as_pickle(model, filename="2s_model_omesi.pkl"):
     with open(filename, 'wb') as file:
         pickle.dump(model, file)
@@ -120,33 +78,24 @@ def extract_windows_from_stft(file_path):
     y, sr = librosa.load(file_path, sr=target_sr, mono=True)
     y = y / (np.max(np.abs(y)) + 1e-5)
     
-    # 1. חישוב STFT מורכב על כל הקובץ הארוך בבת אחת
     stft_complex_full = librosa.stft(y, n_fft=2048, hop_length=512)
     stft_full = np.abs(stft_complex_full)
     
-    # 2. הגדרת פרמטרי החלון הנע (Sliding Window)
-    # בקצב דגימה 16000 וקפיצה 512, יש ~31.25 פריימים בשנייה. 2 שניות = 62 פריימים.
     frames_per_2s = int((2 * target_sr) / 512) 
-    # חפיפה של 75% אומרת שנעים קדימה ב-25% בכל פעם
     step_size = int(frames_per_2s * 0.25) 
     
     total_frames = stft_full.shape[1]
     window_features = []
     
-    # אם הקובץ קצר מדי מ-2 שניות, נדלג עליו
     if total_frames < frames_per_2s:
         return window_features
 
-    # 3. ריצה בלולאה על פני כל החלונות האפשריים בקובץ הארוך
     for start_frame in range(0, total_frames - frames_per_2s + 1, step_size):
         end_frame = start_frame + frames_per_2s
         
-        # חיתוך המקטע הספציפי של ה-2 שניות הנוכחיות
         stft = stft_full[:, start_frame:end_frame]
         stft_complex = stft_complex_full[:, start_frame:end_frame]
         
-        # --- חילוץ הפיצ'רים המתקדם עבור ה-2 שניות הללו ---
-        # רעיון 1: ניתוח פאזה ויציבות אקוסטית
         phase = np.angle(stft_complex)
         unwrapped_phase = np.unwrap(phase, axis=1)
         phase_derivative = np.diff(unwrapped_phase, axis=1)
@@ -156,7 +105,6 @@ def extract_windows_from_stft(file_path):
         phase_stability_mid = np.mean(phase_std_per_freq[384:512])     
         phase_stability_high = np.mean(phase_std_per_freq[896:1024])   
         
-        # רעיון 2: יחסי אנרגיה ברצועות תדר
         low_band = stft[0:128, :]
         mid_high_band = stft[384:512, :]
         extreme_high_band = stft[896:1024, :]
@@ -168,16 +116,13 @@ def extract_windows_from_stft(file_path):
         ratio_mid_low = mid_high_energy / low_energy          
         ratio_extreme_low = extreme_high_energy / low_energy  
         
-        # סטטיסטיקות STFT
         stft_mean = np.mean(stft, axis=1)
         stft_std = np.std(stft, axis=1)
         
-        # מקדמי MFCC
         mfccs = librosa.feature.mfcc(S=librosa.amplitude_to_db(stft + 1e-5), sr=target_sr, n_mfcc=5)
         mfcc_mean = np.mean(mfccs, axis=1)
         mfcc_std = np.std(mfccs, axis=1)
         
-        # איחוד הוקטור
         flat_features = np.concatenate([
             stft_mean, stft_std,
             mfcc_mean, mfcc_std,
@@ -191,7 +136,7 @@ def extract_windows_from_stft(file_path):
 
 def prepare_data_raw(base_paths, label_folder_map):
     """
-    טוען קבצים ארוכים וגולמיים מתוך תיקיות ה-raw, ומפרק דינמית בזיכרון לחלונות.
+    טוען קבצים ישירות מתוך התיקיות שהוגדרו, ללא הוספה אוטומטית של תתי-תיקיות.
     """
     X, y, file_paths = [], [], []
     
@@ -199,12 +144,12 @@ def prepare_data_raw(base_paths, label_folder_map):
         base_paths = [base_paths]
         
     for base_path in base_paths:
-        raw_base_path = os.path.join(base_path, "raw_extracted_segments")
-        print(f"\n--- Scanning Base Raw Directory: {raw_base_path} ---")
+        # ההוספה האוטומטית בוטלה כאן - משתמשים בנתיב המלא בדיוק כפי שהוזן
+        print(f"\n--- Scanning Directory: {base_path} ---")
         
         for label, folders in label_folder_map.items():
             for folder in folders:
-                folder_path = os.path.join(raw_base_path, folder)
+                folder_path = os.path.join(base_path, folder)
                 if not os.path.exists(folder_path):
                     continue
                     
@@ -215,12 +160,11 @@ def prepare_data_raw(base_paths, label_folder_map):
                 print(f"Processing {len(files)} raw files from '{folder}' (Label: {label})")
                 for f in tqdm(files):
                     try:
-                        # חילוץ רשימה של חלונות מתוך קובץ ארוך אחד
                         feats_list = extract_windows_from_stft(f)
                         for feat in feats_list:
                             X.append(feat)
                             y.append(label)
-                            file_paths.append(f) # נשמור את נתיב קובץ המקור לתיעוד שגיאות
+                            file_paths.append(f)
                     except Exception as e:
                         print(f"Error processing {f}: {e}")
                         
@@ -244,7 +188,8 @@ def analyze_model_errors(y_test, y_probs, custom_preds, paths_test):
         file_path = paths_test[i]
         
         parts = file_path.split(os.sep)
-        scenario = parts[-4] if len(parts) >= 4 else "Unknown"
+        # מכיוון שהורדנו שלב בנתיב האוטומטי, שם הניסוי נמצא כעת במיקום 3 מהסוף
+        scenario = parts[-3] if len(parts) >= 3 else "Unknown"
         scenario_stats[scenario]['total'] += 1
         
         if true_label == 0 and pred_label == 1:
@@ -315,28 +260,27 @@ def plot_feature_importance_debug(model, feature_names=None):
     plt.show()
 
 # ======================================================================
-# 🛠️ CONFIGURATION (הגדרת התיקיות החדשות)
+# 🛠️ CONFIGURATION - הזנת הניתוב המלא והמדויק (ללא הוספה אוטומטית)
 # ======================================================================
 
 DATA_DIRECTORIES = [
-    r"/Users/deviceone/Documents/data/2026.04.28_omesi",
-    r"/Users/deviceone/Documents/data/2026.05.01_omesi",
-    r"/Users/deviceone/Documents/data/dregon",
-    r"/Users/deviceone/Documents/data/nasa_2",
-    r"/Users/deviceone/Documents/data/tut",
-    r"/Users/deviceone/Documents/data/ESC-50"
+    r"/Users/deviceone/Documents/data/2026.04.28_omesi/raw_extracted_segments",
+    r"/Users/deviceone/Documents/data/2026.05.01_omesi/raw_extracted_segments",
+    r"/Users/deviceone/Documents/data/dregon/raw_extracted_segments",
+    r"/Users/deviceone/Documents/data/nasa_2/raw_extracted_segments",
+    r"/Users/deviceone/Documents/data/tut/raw_extracted_segments",
+    r"/Users/deviceone/Documents/data/ESC-50/raw_extracted_segments"
 ]
 
 MODEL_OUTPUT_DIR = r"/Users/deviceone/Documents/d_detection/models"
 
-# מיפוי המבנה החדש שביקשת
+# המילון מחפש ישירות את תתי-התיקיות הללו בתוך הנתיבים שלמעלה
 binary_map = {
     0: ['raw_background'], 
     1: ['raw_drone']  
 }
 
 if __name__ == "__main__":
-    # שימוש בפונקציית הטעינה הגולמית החדשה
     X_bin, y_bin, file_paths = prepare_data_raw(DATA_DIRECTORIES, binary_map)
     unique_labels = np.unique(y_bin)
     
@@ -368,8 +312,10 @@ if __name__ == "__main__":
         print("\n--- Baseline Classifier Results (Threshold = 0.5) ---")
         print(classification_report(y_test, preds))
         
-        fpr, tpr, thresholds, chosen_threshold = plot_log_roc_curve(model_bin, X_test, y_test, target_class_index=1)
-        chosen_threshold = 0.90  # <-- תוסיפי את השורה הזו כאן בשביל שליטה ידנית!
+        fpr, tpr, thresholds, recommended_threshold = plot_log_roc_curve(model_bin, X_test, y_test, target_class_index=1)
+        
+        # 🎯 כאן את שולטת ב-Threshold ידנית בצורה מרוכזת:
+        chosen_threshold = 0.8  
 
         print(f"📊 Applying Custom Threshold ({chosen_threshold:.4f}) to Test Data...")
         y_probs = model_bin.predict_proba(X_test)[:, 1]
@@ -379,7 +325,6 @@ if __name__ == "__main__":
         plot_confusion_matrix_graphic(y_test, custom_preds)
 
         analyze_model_errors(y_test, y_probs, custom_preds, paths_test)
-        # save_error_spectrograms(y_test, y_probs, custom_preds, paths_test)
 
         # בניית שמות הפיצ'רים לגרף
         stft_len = 1025     

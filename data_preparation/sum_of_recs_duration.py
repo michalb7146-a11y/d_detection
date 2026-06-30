@@ -6,11 +6,11 @@ from tqdm import tqdm
 DATA_DIRECTORIES = [
     r"/Users/deviceone/Documents/data/2026.04.28_omesi/raw_extracted_segments",
     r"/Users/deviceone/Documents/data/2026.05.01_omesi/raw_extracted_segments",
-    # r"/Users/deviceone/Documents/data/dregon/slice_2s_overlap_dregon",
+    r"/Users/deviceone/Documents/data/dregon/slice_2s_overlap_dregon",
     r"/Users/deviceone/Documents/data/nasa_2/raw_extracted_segments_nasa_2",
-    # r"/Users/deviceone/Documents/data/tut/slice_2s_overlap_tut",
-    # r"/Users/deviceone/Documents/data/DNC/slice_2s_overlap_dnc",
-    # r"/Users/deviceone/Documents/data/ESC-50/slice_2s_overlap_ESC-50"
+    r"/Users/deviceone/Documents/data/tut/slice_2s_overlap_tut",
+    r"/Users/deviceone/Documents/data/DNC/slice_2s_overlap_dnc",
+    r"/Users/deviceone/Documents/data/ESC-50/slice_2s_overlap_ESC-50"
 ]
 
 def calculate_raw_dataset_hours():
