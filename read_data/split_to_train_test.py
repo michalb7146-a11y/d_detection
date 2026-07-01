@@ -8,10 +8,10 @@ from sklearn.model_selection import train_test_split
 # 🛠️ CONFIGURATION - הגדרת נתיבים
 # ======================================================================
 # הנתיב לתיקייה הראשית הנוכחית שמכילה את raw_background ו-raw_drone
-SOURCE_DIR = r"/Users/deviceone/Documents/data/2026.06.07_manatees/raw_extracted_segments"
+SOURCE_DIR = r"/Users/deviceone/Documents/data/2026.06.17_swan/raw_extracted_segments"
 
 # הנתיב לתיקייה החדשה שבה תרצה ליצור את הפיצול
-OUTPUT_DIR = r"/Users/deviceone/Documents/data/2026.06.07_manatees/SPLITTED"
+OUTPUT_DIR = r"/Users/deviceone/Documents/data/2026.06.17_swan/SPLITTED"
 
 SUB_FOLDERS = ['raw_background', 'raw_drone']
 

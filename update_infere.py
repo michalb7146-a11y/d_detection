@@ -13,10 +13,10 @@ from collections import defaultdict
 # ======================================================================
 # 🛠️ CONFIGURATION - הגדרות נתיבים ומילוני מיפוי
 # ======================================================================
-# שנה נתיב זה לנתיב שבו נמצאת התיקייה המכילה את raw_drone ו-raw_background החדשים
-NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo_just_background/SPLITTED/test_set"
+# NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo_just_background/SPLITTED/test_set"
 # NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.07_manatees/SPLITTED/test_set" 
-# NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.17_swan/SPLITTED/test_set"
+NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.17_swan/SPLITTED/test_set"
+# NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo/raw_extracted_segments"
 MODEL_PICKLE_PATH = r"/Users/deviceone/Documents/d_detection/models/2s_model_omesi.pickle"
 MODEL_OUTPUT_DIR = r"/Users/deviceone/Documents/d_detection/models" # נתיב לשמירת גרפי ה-Timeline
 CHOSEN_THRESHOLD = 0.8  
@@ -27,28 +27,42 @@ binary_map = {
 }
 
 # ======================================================================
-# 🧬 פונקציית חילוץ הפיצ'רים המקורית (זהה לחלוטין לאימון)
+# 🧬 פונקציית חילוץ הפיצ'רים המעודכנת (זהה לחלוטין לאימון)
 # ======================================================================
 def extract_windows_from_stft(file_path):
+    """
+    📌 SLIDING WINDOW MEL-SPECTROGRAM FEATURE EXTRACTION WITH HIGH-FREQUENCY FILTERING
+    """
     target_sr = 16000
-    
-    # 1. טעינת הקובץ בפורמט המקורי שלו (ללא מיזוג אוטומטי למונו)
     y, sr = librosa.load(file_path, sr=target_sr, mono=False)
     
-    # 2. אם הקובץ הוא סטריאו (מערך דו-ממדי), ניקח רק את הערוץ הראשון (השמאלי)
     if len(y.shape) > 1 and y.shape[0] > 1:
-        y = y[0] # לקיחת ערוץ שמאל בלבד כדי לשמור על פאזה נקייה מהתאבכויות
+        y = y[0]
         
-    # 3. נורמליזציה רגילה כפי שהיה לך
-    y = y / (np.max(np.abs(y)) + 1e-5)
-
-    stft_complex_full = librosa.stft(y, n_fft=2048, hop_length=512)
-    stft_full = np.abs(stft_complex_full)
+    # נורמליזציית RMS למניעת FA מרעשי רקע חלשים
+    rms = np.sqrt(np.mean(y**2)) + 1e-5
+    y = (y / rms) * 0.1 
     
-    frames_per_2s = int((2 * target_sr) / 512) 
+    # הגדרות לחלונות הזמן (חייב להיות זהה לאימון!)
+    n_fft = 2048
+    hop_length = 512
+    n_mels = 64
+    
+    # חילוץ Mel-Spectrogram חסום עד 2000Hz (מסנן את הצרצרים)
+    mel_spec_power = librosa.feature.melspectrogram(
+        y=y, sr=target_sr, n_fft=n_fft, hop_length=hop_length, 
+        n_mels=n_mels, fmax=2000
+    )
+    # המרה לדציבלים
+    mel_spec_db = librosa.power_to_db(mel_spec_power + 1e-5)
+    
+    # חילוץ MFCCs מתוך ה-Mel-Spectrogram
+    mfccs = librosa.feature.mfcc(S=mel_spec_db, sr=target_sr, n_mfcc=13)
+    
+    frames_per_2s = int((2 * target_sr) / hop_length) 
     step_size = int(frames_per_2s * 0.25) 
     
-    total_frames = stft_full.shape[1]
+    total_frames = mel_spec_db.shape[1]
     window_features = []
     
     if total_frames < frames_per_2s:
@@ -57,41 +71,21 @@ def extract_windows_from_stft(file_path):
     for start_frame in range(0, total_frames - frames_per_2s + 1, step_size):
         end_frame = start_frame + frames_per_2s
         
-        stft = stft_full[:, start_frame:end_frame]
-        stft_complex = stft_complex_full[:, start_frame:end_frame]
+        # חיתוך חלון
+        mel_window = mel_spec_db[:, start_frame:end_frame]
+        mfcc_window = mfccs[:, start_frame:end_frame]
         
-        phase = np.angle(stft_complex)
-        unwrapped_phase = np.unwrap(phase, axis=1)
-        phase_derivative = np.diff(unwrapped_phase, axis=1)
-        phase_std_per_freq = np.std(phase_derivative, axis=1)
+        # חישוב ממוצע וסטיית תקן
+        mel_mean = np.mean(mel_window, axis=1)
+        mel_std = np.std(mel_window, axis=1)
         
-        phase_stability_low = np.mean(phase_std_per_freq[0:128])       
-        phase_stability_mid = np.mean(phase_std_per_freq[384:512])     
-        phase_stability_high = np.mean(phase_std_per_freq[896:1024])   
+        mfcc_mean = np.mean(mfcc_window, axis=1)
+        mfcc_std = np.std(mfcc_window, axis=1)
         
-        low_band = stft[0:128, :]
-        mid_high_band = stft[384:512, :]
-        extreme_high_band = stft[896:1024, :]
-        
-        low_energy = np.mean(low_band) + 1e-5
-        mid_high_energy = np.mean(mid_high_band)
-        extreme_high_energy = np.mean(extreme_high_band)
-        
-        ratio_mid_low = mid_high_energy / low_energy          
-        ratio_extreme_low = extreme_high_energy / low_energy  
-        
-        stft_mean = np.mean(stft, axis=1)
-        stft_std = np.std(stft, axis=1)
-        
-        mfccs = librosa.feature.mfcc(S=librosa.amplitude_to_db(stft + 1e-5), sr=target_sr, n_mfcc=5)
-        mfcc_mean = np.mean(mfccs, axis=1)
-        mfcc_std = np.std(mfccs, axis=1)
-        
+        # שרשור הפיצ'רים (מייצר בדיוק 154 פיצ'רים)
         flat_features = np.concatenate([
-            stft_mean, stft_std,
-            mfcc_mean, mfcc_std,
-            [ratio_mid_low, ratio_extreme_low],
-            [phase_stability_low, phase_stability_mid, phase_stability_high]
+            mel_mean, mel_std,
+            mfcc_mean, mfcc_std
         ])
         
         window_features.append(flat_features)
@@ -104,7 +98,6 @@ def load_new_test_data(base_path, label_folder_map):
 
     print(f"\n--- Scanning Directory for New Test Set: {base_path} ---")
     
-    # בדיקה מקדימה שהתיקייה הראשית קיימת
     if not os.path.exists(base_path):
         print(f"❌ Error: Base path does not exist: {base_path}")
         return np.array(X), np.array(y), np.array(file_paths), np.array(scenarios), np.array(timestamps)
@@ -118,7 +111,6 @@ def load_new_test_data(base_path, label_folder_map):
                 print(f"⚠️ Warning: Sub-folder not found: {folder_path}")
                 continue
                 
-            # תמיכה גם ב-.wav וגם ב-.WAV
             files = glob.glob(os.path.join(folder_path, "*.wav")) + glob.glob(os.path.join(folder_path, "*.WAV"))
             
             if len(files) == 0:
@@ -146,16 +138,16 @@ def load_new_test_data(base_path, label_folder_map):
     return np.array(X), np.array(y), np.array(file_paths), np.array(scenarios), np.array(timestamps)
 
 # ======================================================================
-# 📊 פונקציות ניתוח והדמיה גרפית (Confusion Matrix, ROC, Timelines)
+# 📊 פונקציות ניתוח והדמיה גרפית
 # ======================================================================
 def print_detailed_errors(y_test, preds, show_matrix=True):
     if not show_matrix:
         return
-    cm = confusion_matrix(y_test, preds)
+    # 🛠️ תיקון: הגדרת labels=[0, 1] למניעת קריסה במחלקה בודדת
+    cm = confusion_matrix(y_test, preds, labels=[0, 1])
     if cm.size == 4:
         tn, fp, fn, tp = cm.ravel()
         
-        # חישוב סך הכל דגימות אמיתיות לכל מחלקה כדי למנוע חלוקה באפס
         total_bg = tn + fp if (tn + fp) > 0 else 1
         total_drone = fn + tp if (fn + tp) > 0 else 1
         
@@ -170,20 +162,16 @@ def print_detailed_errors(y_test, preds, show_matrix=True):
         print(cm)
 
 def plot_confusion_matrix_graphic(y_test, preds):
-    cm = confusion_matrix(y_test, preds)
+    # 🛠️ תיקון: הגדרת labels=[0, 1] למניעת קריסה במחלקה בודדת
+    cm = confusion_matrix(y_test, preds, labels=[0, 1])
     
-    # חישוב אחוזים מנורמלים לפי השורות (True Labels)
-    # מוסיפים 1e-5 למכנה כדי למנוע שגיאות חלוקה באפס במידה ומחלקה מסוימת חסרה בטסט
     row_sums = cm.sum(axis=1)[:, np.newaxis]
     row_sums = np.where(row_sums == 0, 1, row_sums)
     cm_perc = (cm.astype('float') / row_sums) * 100
     
     fig, ax = plt.subplots(figsize=(6, 6))
-    
-    # ציור המטריצה הבסיסית
     im = ax.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
     
-    # הגדרת שמות וכותרות לצירים
     classes = ['Background', 'Drone']
     tick_marks = np.arange(len(classes))
     ax.set_xticks(tick_marks)
@@ -191,19 +179,12 @@ def plot_confusion_matrix_graphic(y_test, preds):
     ax.set_yticks(tick_marks)
     ax.set_yticklabels(classes, fontsize=10, fontweight='bold')
     
-    # מעבר על המשבצות וכתיבת הטקסט המשולב (מספר + אחוז)
     thresh = cm.max() / 2.
     for i in range(cm.shape[0]):
         for j in range(cm.shape[1]):
-            # יצירת מחרוזת המכילה מספר ואחוז
             text_str = f"{cm[i, j]}\n({cm_perc[i, j]:.1f}%)"
-            
-            # התאמת צבע הגופן לרקע הריבוע כדי שיהיה קריא
             color = "white" if cm[i, j] > thresh else "black"
-            
-            ax.text(j, i, text_str,
-                    ha="center", va="center",
-                    color=color, fontsize=11, fontweight='bold')
+            ax.text(j, i, text_str, ha="center", va="center", color=color, fontsize=11, fontweight='bold')
             
     plt.title("Confusion Matrix - Drone Detection Performance (New Test)", fontsize=12, fontweight='bold', pad=15)
     plt.xlabel("Predicted Label", fontsize=10, fontweight='bold')
@@ -212,6 +193,11 @@ def plot_confusion_matrix_graphic(y_test, preds):
     plt.show()
 
 def plot_log_roc_curve(model, X_test, y_test, target_class_index=1):
+    # בדיקה אם יש לנו לפחות שתי מחלקות בשביל גרף ה-ROC
+    if len(np.unique(y_test)) < 2:
+        print("⚠️ Skipping ROC Curve plot: ROC calculation requires both background and drone samples in the dataset.")
+        return
+        
     y_probs = model.predict_proba(X_test)[:, target_class_index]
     fpr, tpr, thresholds = roc_curve(y_test, y_probs)
     roc_auc = auc(fpr, tpr)
@@ -350,7 +336,6 @@ if __name__ == "__main__":
         loaded_model = pickle.load(file)
     print("✅ Model loaded successfully.")
 
-    # 1. טעינת הנתונים החדשים
     X_new, y_new, paths_new, scenarios_new, timestamps_new = load_new_test_data(NEW_TEST_DATA_DIR, binary_map)
     
     if len(X_new) == 0:
@@ -358,15 +343,12 @@ if __name__ == "__main__":
     else:
         print(f"\n✅ Data generation complete. Total windows for testing: {len(X_new)}")
         
-        # 2. הרצת החיזוי והוצאת הסתברויות
         y_probs = loaded_model.predict_proba(X_new)[:, 1]
-        
-        # 3. החלת הסף המותאם אישית
         custom_preds = (y_probs >= CHOSEN_THRESHOLD).astype(int)
         
-        # 4. הפקת דוחות וגרפים (Confusion Matrix ו-ROC)
         print(f"\n--- Performance Evaluation (Threshold = {CHOSEN_THRESHOLD}) ---")
-        print(classification_report(y_new, custom_preds, target_names=['Background', 'Drone'], zero_division=0))
+        # 🛠️ תיקון: הגדרת labels=[0, 1] כדי למנוע קריסה כאשר הדאטהסט חד-מחלקתי
+        print(classification_report(y_new, custom_preds, labels=[0, 1], target_names=['Background', 'Drone'], zero_division=0))
         
         print_detailed_errors(y_new, custom_preds)
         
@@ -376,6 +358,5 @@ if __name__ == "__main__":
         print("📈 Plotting Log ROC Curve...")
         plot_log_roc_curve(loaded_model, X_new, y_new, target_class_index=1)
         
-        # 5. ציור גרפי ה-Timeline המיושרים ל-Audacity ושמירתם בדיסק
         print("📈 Plotting timelines matched perfectly to Audacity timelines (Minutes:Seconds)...")
         plot_scenarios_timeline_by_recordings(y_new, y_probs, custom_preds, scenarios_new, paths_new, timestamps_new)
