@@ -14,7 +14,9 @@ from collections import defaultdict
 # 🛠️ CONFIGURATION - הגדרות נתיבים ומילוני מיפוי
 # ======================================================================
 # שנה נתיב זה לנתיב שבו נמצאת התיקייה המכילה את raw_drone ו-raw_background החדשים
-NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo_just_background" 
+NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo_just_background/SPLITTED/test_set"
+# NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.07_manatees/SPLITTED/test_set" 
+# NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.17_swan/SPLITTED/test_set"
 MODEL_PICKLE_PATH = r"/Users/deviceone/Documents/d_detection/models/2s_model_omesi.pickle"
 MODEL_OUTPUT_DIR = r"/Users/deviceone/Documents/d_detection/models" # נתיב לשמירת גרפי ה-Timeline
 CHOSEN_THRESHOLD = 0.8  
@@ -152,20 +154,57 @@ def print_detailed_errors(y_test, preds, show_matrix=True):
     cm = confusion_matrix(y_test, preds)
     if cm.size == 4:
         tn, fp, fn, tp = cm.ravel()
+        
+        # חישוב סך הכל דגימות אמיתיות לכל מחלקה כדי למנוע חלוקה באפס
+        total_bg = tn + fp if (tn + fp) > 0 else 1
+        total_drone = fn + tp if (fn + tp) > 0 else 1
+        
         print("\n--- DETAILED ERROR ANALYSIS (Confusion Matrix) ---")
-        print(f"OK True Negatives  (Correct Background): {tn}")
-        print(f"XX False Positives (False Alarms):       {fp}")
-        print(f"XX False Negatives (Missed Detections):  {fn}")
-        print(f"OK True Positives  (Correct Drone):     {tp}\n")
+        print(f"OK True Negatives  (Correct Background): {tn:<5} ({ (tn/total_bg)*100 :.2f}%)")
+        print(f"XX False Positives (False Alarms):       {fp:<5} ({ (fp/total_bg)*100 :.2f}%)")
+        print(f"XX False Negatives (Missed Detections):  {fn:<5} ({ (fn/total_drone)*100 :.2f}%)")
+        print(f"OK True Positives  (Correct Drone):     {tp:<5} ({ (tp/total_drone)*100 :.2f}%)")
+        print("-" * 50 + "\n")
     else:
         print("\n--- Raw Confusion Matrix ---")
         print(cm)
 
 def plot_confusion_matrix_graphic(y_test, preds):
     cm = confusion_matrix(y_test, preds)
+    
+    # חישוב אחוזים מנורמלים לפי השורות (True Labels)
+    # מוסיפים 1e-5 למכנה כדי למנוע שגיאות חלוקה באפס במידה ומחלקה מסוימת חסרה בטסט
+    row_sums = cm.sum(axis=1)[:, np.newaxis]
+    row_sums = np.where(row_sums == 0, 1, row_sums)
+    cm_perc = (cm.astype('float') / row_sums) * 100
+    
     fig, ax = plt.subplots(figsize=(6, 6))
-    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Background', 'Drone'])
-    disp.plot(cmap=plt.cm.Blues, values_format='d', ax=ax, colorbar=False)
+    
+    # ציור המטריצה הבסיסית
+    im = ax.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+    
+    # הגדרת שמות וכותרות לצירים
+    classes = ['Background', 'Drone']
+    tick_marks = np.arange(len(classes))
+    ax.set_xticks(tick_marks)
+    ax.set_xticklabels(classes, fontsize=10, fontweight='bold')
+    ax.set_yticks(tick_marks)
+    ax.set_yticklabels(classes, fontsize=10, fontweight='bold')
+    
+    # מעבר על המשבצות וכתיבת הטקסט המשולב (מספר + אחוז)
+    thresh = cm.max() / 2.
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            # יצירת מחרוזת המכילה מספר ואחוז
+            text_str = f"{cm[i, j]}\n({cm_perc[i, j]:.1f}%)"
+            
+            # התאמת צבע הגופן לרקע הריבוע כדי שיהיה קריא
+            color = "white" if cm[i, j] > thresh else "black"
+            
+            ax.text(j, i, text_str,
+                    ha="center", va="center",
+                    color=color, fontsize=11, fontweight='bold')
+            
     plt.title("Confusion Matrix - Drone Detection Performance (New Test)", fontsize=12, fontweight='bold', pad=15)
     plt.xlabel("Predicted Label", fontsize=10, fontweight='bold')
     plt.ylabel("True Label", fontsize=10, fontweight='bold')

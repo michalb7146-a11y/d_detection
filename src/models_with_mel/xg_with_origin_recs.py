@@ -4,7 +4,7 @@ import numpy as np
 import librosa
 import xgboost as xgb
 import pandas as pd
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GroupKFold
 from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc, ConfusionMatrixDisplay
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -71,12 +71,17 @@ def plot_log_roc_curve(model, X_test, y_test, target_class_index=1):
 
 def extract_windows_from_stft(file_path):
     """
-    📌 SLIDING WINDOW STFT FEATURE EXTRACTION:
-    טוען קובץ ארוך, מחשב STFT מלא, ומפרק לחלונות של 2 שניות עם חפיפה של 75% בזיכרון.
+    📌 SLIDING WINDOW STFT FEATURE EXTRACTION WITH RMS NORMALIZATION
     """
     target_sr = 16000
-    y, sr = librosa.load(file_path, sr=target_sr, mono=True)
-    y = y / (np.max(np.abs(y)) + 1e-5)
+    y, sr = librosa.load(file_path, sr=target_sr, mono=False)
+    
+    if len(y.shape) > 1 and y.shape[0] > 1:
+        y = y[0]
+        
+    # 🛠️ עדכון נורמליזציה: שימוש ב-RMS במקום Max כדי למנוע FA של הגברת רעשי רקע שקטים
+    rms = np.sqrt(np.mean(y**2)) + 1e-5
+    y = (y / rms) * 0.1 # מביא את האות לעוצמה ממוצעת בריאה ויציבה
     
     stft_complex_full = librosa.stft(y, n_fft=2048, hop_length=512)
     stft_full = np.abs(stft_complex_full)
@@ -135,13 +140,7 @@ def extract_windows_from_stft(file_path):
     return window_features
 
 def prepare_data_raw(base_paths_config, label_folder_map):
-    """
-    טוענת קבצים בהתאם למבנה המילונים החדש (name ו-path).
-    שומרת את זמן תחילת החלון האמיתי בשניות (timestamps) מתחילת הקובץ המקורי.
-    """
     X, y, file_paths, sample_scenarios, timestamps = [], [], [], [], []
-    
-    # חישוב קפיצת הזמן האמיתית בשניות בין חלון לחלון (Stride)
     window_stride_seconds = (int(((2 * 16000) / 512) * 0.25) * 512) / 16000 
 
     for item in base_paths_config:
@@ -155,7 +154,7 @@ def prepare_data_raw(base_paths_config, label_folder_map):
                 if not os.path.exists(folder_path):
                     continue
                     
-                files = glob.glob(os.path.join(folder_path, "*.wav"))
+                files = glob.glob(os.path.join(folder_path, "*.wav")) + glob.glob(os.path.join(folder_path, "*.WAV"))
                 if len(files) == 0:
                     continue
                     
@@ -168,8 +167,6 @@ def prepare_data_raw(base_paths_config, label_folder_map):
                             y.append(label)
                             file_paths.append(f)
                             sample_scenarios.append(dataset_name)
-                            
-                            # שמירת הזמן האמיתי בשניות של החלון הנוכחי מתחילת הקובץ
                             exact_time_sec = win_idx * window_stride_seconds
                             timestamps.append(exact_time_sec)
                             
@@ -222,40 +219,13 @@ def analyze_model_errors(y_test, y_probs, custom_preds, scenarios_test, paths_te
         print(f"{GREEN}{row_str}{RESET}")
         
     print(f"{GREEN}" + "=" * len(header) + f"{RESET}")
-    print("\n" + "="*80)
-    print("📂 DETAILED ERROR FILE LOGS")
-    print("="*80)
-
-    has_any_errors = False
-    for scenario, stats in scenario_stats.items():
-        if len(stats['error_files']) == 0:
-            continue
-        has_any_errors = True
-        print(f"\n🎬 SCENARIO: {PURPLE}{scenario}{RESET}")
-        print("-" * (len(scenario) + 11))
-        
-        stats['error_files'].sort(key=lambda x: x['conf'], reverse=True)
-        for err in stats['error_files']:
-            print(f"  {err['type']} [Conf: {err['conf']*100:.1f}%] {err['path']}")
-        print("." * 60)
-
-    if not has_any_errors:
-        print("\n🎉 No errors found in any scenario! Perfect classification.")
-    print("=" * 80 + "\n")
 
 def plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenarios_test, paths_test, timestamps_test):
-    """
-    מייצרת ומצילה תמונה (Figure) נפרדת עבור כל שם ניסוי מוגדר במילון (name).
-    מציגה את נקודות הזמן האמיתיות (מ-0 ועד הטווח המלא של הקובץ, למשל 6:30 דקות)
-    ומסמנת FA בחלוניות צהובות מעוצבות בפורמט של דקות:שניות.
-    """
     nested_data = defaultdict(lambda: defaultdict(list))
-    
     for i in range(len(y_test)):
         scenario = scenarios_test[i] 
         file_path = paths_test[i]
         recording_name = os.path.basename(file_path)
-        
         true_label = y_test[i]
         pred_label = custom_preds[i]
         
@@ -276,152 +246,84 @@ def plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenari
             'true': true_label,
             'color': color,
             'label_text': label_text,
-            'time_sec': timestamps_test[i] # שימוש בזמן האמיתי של החלון בקובץ
+            'time_sec': timestamps_test[i]
         })
 
     output_dir = MODEL_OUTPUT_DIR
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    print("\n" + "="*80)
-    print("🎯 LOGGING FALSE ALARM TIMESTAMPS FOR AUDACITY INSPECTION (MATCHED 100%):")
-    print("="*80)
-
     for scenario_name, recordings in sorted(nested_data.items()):
         num_recordings = len(recordings)
-        
         fig, axes = plt.subplots(num_recordings, 1, figsize=(15, 4.2 * num_recordings), sharex=False)
         if num_recordings == 1:
             axes = [axes]
             
-        fig.suptitle(f"🎬 EXPERIMENT TIMELINE: {scenario_name}", fontsize=14, fontweight='bold', y=0.98)
-        
         for idx, (rec_name, windows) in enumerate(sorted(recordings.items())):
             ax = axes[idx]
-            
-            # מיון כרונולוגי לפי הזמן האמיתי של החלונות בקובץ
             windows.sort(key=lambda x: x['time_sec'])
-            
             times_sec = np.array([w['time_sec'] for w in windows])
             y_values = [w['true'] for w in windows]
             colors = [w['color'] for w in windows]
             
-            # קו רשת דק ברקע של הזרימה
             ax.plot(times_sec, y_values, color='gray', linestyle='--', alpha=0.2, lw=1.0)
-            
-            visible_labels = set()
             for i in range(len(windows)):
-                col = colors[i]
-                lbl = windows[i]['label_text']
-                current_time = times_sec[i]
-                
-                if lbl in visible_labels:
-                    lbl = "_" + lbl
-                else:
-                    visible_labels.add(lbl)
-                
-                ax.scatter(current_time, y_values[i], color=col, s=80, edgecolors='black', linewidths=0.8, zorder=3, label=lbl)
-                
-                # אם זו נקודת False Alarm (אדומה), נוסיף כיתוב זמן בפורמט דקות:שניות לגרף ולטרמינל
-                if col == '#d62728':
-                    minutes = int(current_time // 60)
-                    seconds = current_time % 60
-                    time_str = f"{minutes}:{seconds:05.2f}"
-                    
-                    ax.annotate(time_str, 
-                                xy=(current_time, y_values[i]),
-                                xytext=(0, 10), 
-                                textcoords='offset points', 
-                                ha='center', 
-                                va='bottom',
-                                fontsize=8, 
-                                color='darkred', 
-                                fontweight='bold',
-                                bbox=dict(boxstyle='round,pad=0.2', fc='yellow', alpha=0.7, ec='red', lw=0.5))
-                    
-                    print(f"  ❌ [FA] File: {rec_name:<35} | Audacity Time: {time_str} ({current_time:.2f}s)")
-            
-            ax.set_title(f"🎵 Recording File: {rec_name}", fontsize=10, fontweight='bold', color='navy', loc='left')
+                ax.scatter(times_sec[i], y_values[i], color=colors[i], s=80, edgecolors='black', linewidths=0.8, zorder=3)
+            ax.set_title(f"🎵 {rec_name}", fontsize=10, loc='left')
             ax.set_yticks([0, 1])
-            ax.set_yticklabels(['Background (0)', 'Drone (1)'], fontsize=9, fontweight='bold')
-            ax.set_xlabel("Real Audio Time (Seconds)", fontsize=9)
-            
-            # פרישת ציר ה-X לפי אורך האודיו האמיתי המלא בקובץ (עם מרווח ביטחון קטן)
-            if len(times_sec) > 0:
-                ax.set_xlim([-10, max(times_sec) + 30])
-                
             ax.set_ylim([-0.3, 1.45])
-            ax.grid(True, linestyle=':', alpha=0.5)
             
-            if idx == 0:
-                ax.legend(loc='upper right', bbox_to_anchor=(1.15, 1.2), fontsize=8, fancybox=True, shadow=True)
-                
         plt.tight_layout()
-        plt.subplots_adjust(top=0.92) 
-        
-        save_path = os.path.join(output_dir, f"timeline_{scenario_name}.png")
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        plt.close(fig)  
-        
-        print(f"  🎯 Saved Image for [{scenario_name}] -> {save_path}")
-        
-    print("\n" + "="*80 + "\n")
-
-def plot_feature_importance_debug(model, feature_names=None):
-    importances = model.feature_importances_
-    if feature_names is None:
-        feature_names = [f"Feature_{i}" for i in range(len(importances))]
-        
-    feat_df = pd.DataFrame({'Feature': feature_names, 'Importance': importances}).sort_values(by='Importance', ascending=False)
-    
-    print("\n📊 TOP 10 MOST IMPORTANT FEATURES (XGBoost Debugging):")
-    print("-" * 50)
-    for idx, row in feat_df.head(10).iterrows():
-        print(f"  {row['Feature']:<30} : {row['Importance']*100:.2f}%")
-    print("-" * 50)
-    
-    plt.figure(figsize=(11, 7))
-    top_n = feat_df.head(20)
-    plt.barh(top_n['Feature'][::-1], top_n['Importance'][::-1], color='teal', edgecolor='black', alpha=0.8)
-    plt.xlabel('Importance Score', fontweight='bold', labelpad=10)
-    plt.title('Top 20 Feature Importances - Advanced Audio Feature Analysis', fontsize=12, fontweight='bold', pad=15)
-    plt.grid(axis='x', linestyle='--', alpha=0.5)
-    plt.tight_layout()
-    plt.show()
+        plt.savefig(os.path.join(output_dir, f"timeline_{scenario_name}.png"), dpi=150)
+        plt.close(fig)
 
 # ======================================================================
-# 🛠️ CONFIGURATION - מילון נתונים (רשימת מילונים)
+# 🛠️ CONFIGURATION - מילון הנתונים (כולל הפיצול של manatees)
 # ======================================================================
 DATA_DIRECTORIES = [
-    {'name': '2026.04.28_omesi', 'path': r"/Users/deviceone/Documents/data/2026.04.28_omesi/raw_extracted_segments"},
-    {'name': '2026.05.01_omesi', 'path': r"/Users/deviceone/Documents/data/2026.05.01_omesi/raw_extracted_segments"},
-    {'name': 'dregon',            'path': r"/Users/deviceone/Documents/data/dregon/raw_extracted_segments"},
-    {'name': 'nasa_2',            'path': r"/Users/deviceone/Documents/data/nasa_2/raw_extracted_segments"},
-    {'name': 'tut',               'path': r"/Users/deviceone/Documents/data/tut/raw_extracted_segments"},
-    {'name': 'ESC-50',            'path': r"/Users/deviceone/Documents/data/ESC-50/raw_extracted_segments"}
+    {'name': '2026.04.28_omesi',  'path': r"/Users/deviceone/Documents/data/2026.04.28_omesi/raw_extracted_segments"},
+    {'name': '2026.05.01_omesi',  'path': r"/Users/deviceone/Documents/data/2026.05.01_omesi/raw_extracted_segments"},
+    {'name': 'dregon',             'path': r"/Users/deviceone/Documents/data/dregon/raw_extracted_segments"},
+    {'name': 'nasa_2',             'path': r"/Users/deviceone/Documents/data/nasa_2/raw_extracted_segments"},
+    {'name': 'tut',                'path': r"/Users/deviceone/Documents/data/tut/raw_extracted_segments"},
+    {'name': 'ESC-50',             'path': r"/Users/deviceone/Documents/data/ESC-50/raw_extracted_segments"},
+    {'name': 'kakadoo_train',      'path': r"/Users/deviceone/Documents/data/2026.06.09_kakadoo_SPLITTED/train_set"},
+    {'name': 'manatees_train',     'path': r"/Users/deviceone/Documents/data/2026.06.07_manatees/SPLITTED/train_set"},
+    {'name': 'swan', 'path': r"/Users/deviceone/Documents/data/2026.06.17_swan/SPLITTED/train_set"}
 ]
 
 MODEL_OUTPUT_DIR = r"/Users/deviceone/Documents/d_detection/models"
-
-binary_map = {
-    0: ['raw_background'], 
-    1: ['raw_drone']  
-}
+binary_map = {0: ['raw_background'], 1: ['raw_drone']}
 
 if __name__ == "__main__":
-    # 1. טעינת הנתונים וקבלת ה-timestamps_bin האמיתיים
     X_bin, y_bin, file_paths, scenarios_bin, timestamps_bin = prepare_data_raw(DATA_DIRECTORIES, binary_map)
     unique_labels = np.unique(y_bin)
     
     if len(unique_labels) < 2:
-        print("⚠️ Error: Dataset must contain both background and drone samples to train.")
+        print("⚠️ Error: Dataset must contain both background and drone samples.")
     else:
-        print(f"\n✅ Data generation complete. Total 2-second windows extracted: {len(X_bin)}")
+        # 1. פיצול מבוסס קבצים (GroupSplit)
+        gkf = GroupKFold(n_splits=5)
+        train_idx, test_idx = next(gkf.split(X_bin, y_bin, groups=file_paths))
         
-        # 2. פיצול הנתונים תוך שמירה על סנכרון הזמנים (timestamps) ל-Test Set
-        X_train, X_test, y_train, y_test, paths_train, paths_test, scenarios_train, scenarios_test, timestamps_train, timestamps_test = train_test_split(
-            X_bin, y_bin, file_paths, scenarios_bin, timestamps_bin, test_size=0.2, random_state=42, stratify=y_bin
-        )
+        X_train, X_test = X_bin[train_idx], X_bin[test_idx]
+        y_train, y_test = y_bin[train_idx], y_bin[test_idx]
+        paths_train, paths_test = file_paths[train_idx], file_paths[test_idx]
+        scenarios_train, scenarios_test = scenarios_bin[train_idx], scenarios_bin[test_idx]
+        timestamps_train, timestamps_test = timestamps_bin[train_idx], timestamps_bin[test_idx]
+        
+        # ======================================================================
+        # ⚖️ חישוב דינמי של משקולת איזון המחלקות (Class Balancing)
+        # ======================================================================
+        count_background = np.sum(y_train == 0)
+        count_drone = np.sum(y_train == 1)
+        # הנוסחה הקלאסית למניעת False Alarms עקב חוסר איזון בדאטה
+        calculated_weight = count_background / (count_drone + 1e-5)
+        print(f"\n⚖️ DATA BALANCE ANALYSIS:")
+        print(f"   -> Background Windows (0): {count_background}")
+        print(f"   -> Drone Windows (1):      {count_drone}")
+        print(f"   -> Auto-Calculated scale_pos_weight: {calculated_weight:.4f}\n")
+        # ======================================================================
         
         best_params = {
             'colsample_bytree': 0.7, 
@@ -431,45 +333,26 @@ if __name__ == "__main__":
             'subsample': 0.7
         }
 
+        # הזנת משקולת האיזון הדינמית לתוך ה-XGBoost
         model_bin = xgb.XGBClassifier(
-            objective='binary:logistic', eval_metric='logloss', device="cpu", **best_params
+            objective='binary:logistic', 
+            eval_metric='logloss', 
+            device="cpu", 
+            scale_pos_weight=calculated_weight, # 🛠️ תיקון משקולות
+            **best_params
         )
         
-        print("\n--- Training Model on Raw Windowed Data... ---")
+        print("--- Training Model on Raw Windowed Data... ---")
         model_bin.fit(X_train, y_train)
         
-        preds = model_bin.predict(X_test)
-        print("\n--- Baseline Classifier Results (Threshold = 0.5) ---")
-        print(classification_report(y_test, preds))
-        
-        fpr, tpr, thresholds, recommended_threshold = plot_log_roc_curve(model_bin, X_test, y_test, target_class_index=1)
-        
-        chosen_threshold = 0.8  
-
-        print(f"📊 Applying Custom Threshold ({chosen_threshold:.4f}) to Test Data...")
+        # 2. החלת Threshold מחמיר (0.85 ומעלה מומלץ להורדת FA)
+        chosen_threshold = 0.85  
         y_probs = model_bin.predict_proba(X_test)[:, 1]
         custom_preds = (y_probs >= chosen_threshold).astype(int)
         
         print_detailed_errors(y_test, custom_preds, show_matrix=True)
-        plot_confusion_matrix_graphic(y_test, custom_preds)
-
         analyze_model_errors(y_test, y_probs, custom_preds, scenarios_test, paths_test)
-
-        # 3. ציור גרפים מיושרים לחלוטין לזמנים של Audacity
-        print("📈 Plotting timelines matched perfectly to Audacity timelines (Minutes:Seconds)...")
         plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenarios_test, paths_test, timestamps_test)
-
-        # בניית שמות הפיצ'רים לגרף החשיבות
-        stft_len = 1025     
-        feature_names = []
-        feature_names += [f"STFT_Mean_{i}" for i in range(stft_len)]
-        feature_names += [f"STFT_Std_{i}" for i in range(stft_len)]
-        feature_names += [f"MFCC_Mean_{i}" for i in range(5)]
-        feature_names += [f"MFCC_Std_{i}" for i in range(5)]
-        feature_names += ["Ratio_Mid_Low_Energy", "Ratio_Extreme_Low_Energy"]
-        feature_names += ["Phase_Stability_Low", "Phase_Stability_Mid", "Phase_Stability_High"]
-
-        plot_feature_importance_debug(model_bin, feature_names=feature_names)
 
         if not os.path.exists(MODEL_OUTPUT_DIR):
             os.makedirs(MODEL_OUTPUT_DIR)

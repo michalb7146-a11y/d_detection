@@ -14,9 +14,17 @@ from tqdm import tqdm
 # CSV_DIR = r""
 # OUTPUT_DIR = r"/Users/deviceone/Documents/data/tut/raw_extracted_segments_tut" 
 
-AUDIO_DIR = r"/Users/deviceone/Documents/data/2026.06.01_fang/audio"
-CSV_DIR = r"/Users/deviceone/Documents/data/2026.06.01_fang/tagged_2026.06.01_fang"
-OUTPUT_DIR = r"/Users/deviceone/Documents/data/tut/raw_extracted_segments" 
+# AUDIO_DIR = r"/Users/deviceone/Documents/data/2026.06.01_fang/audio"
+# CSV_DIR = r"/Users/deviceone/Documents/data/2026.06.01_fang/tagged_2026.06.01_fang"
+# OUTPUT_DIR = r"/Users/deviceone/Documents/data/tut/raw_extracted_segments" 
+
+# AUDIO_DIR = r"/Users/deviceone/Documents/data/2026.06.07_manatees/audio"
+# CSV_DIR = r"/Users/deviceone/Documents/data/2026.06.07_manatees/tagged_2026.06.07_manatees"
+# OUTPUT_DIR = r"/Users/deviceone/Documents/data/2026.06.07_manatees/raw_extracted_segments" 
+
+AUDIO_DIR = r"/Users/deviceone/Documents/data/2026.06.17_swan/audio"
+CSV_DIR = r"/Users/deviceone/Documents/data/2026.06.17_swan/tagged_2026.06.17_swan"
+OUTPUT_DIR = r"/Users/deviceone/Documents/data/2026.06.17_swan/raw_extracted_segments"
 
 SR = 16000 
 
