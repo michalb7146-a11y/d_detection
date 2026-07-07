@@ -145,134 +145,67 @@ def analyze_model_errors(y_test, custom_preds, scenarios_test):
         print(f"{scenario:<{scen_w}} | {tot_bg:<{bg_w}} | {fa_str:<{fa_w}} | {tot_dr:<{dr_w}} | {md_str:<{md_w}}")
     print("=" * len(header) + "\n")
 
-# --- פונקציית הפקת הגרפים המרוכזת עם סימון ה-Threshold ---
+# --- פונקציית הגרף החדשה (כמו ב-Inference) ---
 
-def plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenarios_test, paths_test, timestamps_test, threshold, output_dir):
-    nested_data = defaultdict(lambda: defaultdict(list))
+def plot_detection_results(file_path, timestamps, true_labels, smoothed_probs, threshold, title_suffix="", save_path=None):
+    """
+    מייצרת גרף המציג את תוצאות הגילוי לאורך זמן (Inference-style plot).
+    """
+    y, sr = librosa.load(file_path, sr=None, mono=True)
+    duration = librosa.get_duration(y=y, sr=sr)
     
-    for i in range(len(y_test)):
-        scenario = scenarios_test[i] 
-        file_path = paths_test[i]
-        recording_name = os.path.basename(file_path)
-        
-        true_label = y_test[i]
-        pred_label = custom_preds[i]
-        prob = y_probs[i]
-        
-        if true_label == 1 and pred_label == 1:
-            color = '#2ca02c'   
-            label_text = 'Correct Drone'
-        elif true_label == 0 and pred_label == 0:
-            color = '#98df8a'   
-            label_text = 'Correct Background'
-        elif true_label == 0 and pred_label == 1:
-            color = '#d62728'   
-            label_text = 'False Alarm (FA)'
-        elif true_label == 1 and pred_label == 0:
-            color = '#ff7f0e'   
-            label_text = 'Missed Detection (MD)'
+    window_duration = 2.0
+    start_times = timestamps
+    end_times = timestamps + window_duration
+    
+    plt.figure(figsize=(15, 7))
+    plt.plot(timestamps, smoothed_probs, label='Drone Probability', color='blue', linewidth=2)
+    plt.axhline(y=threshold, color='red', linestyle='--', label=f'Threshold ({threshold})')
+    
+    # סימון אזורי גילוי (היכן שהמודל צופה רחפן) בצבע ירוק שקוף
+    predictions = (smoothed_probs >= threshold).astype(int)
+    for start, end, pred in zip(start_times, end_times, predictions):
+        if pred == 1:
+            plt.axvspan(start, end, color='green', alpha=0.3)
             
-        nested_data[scenario][recording_name].append({
-            'true': true_label,
-            'color': color,
-            'label_text': label_text,
-            'time_sec': timestamps_test[i],
-            'prob': prob
-        })
-
-    print("\n" + "="*80)
-    print("🎯 LOGGING FALSE ALARM TIMESTAMPS FOR AUDACITY INSPECTION (MATCHED 100%):")
-    print("="*80)
-
-    for scenario_name, recordings in sorted(nested_data.items()):
-        num_recordings = len(recordings)
-        if num_recordings == 0: 
-            continue
-        
-        fig, axes = plt.subplots(num_recordings, 1, figsize=(15, 4.2 * num_recordings), sharex=False)
-        if num_recordings == 1:
-            axes = [axes]
+    # סימון אזורי האמת (היכן שיש רחפן באמת) באמצעות קו עבה יותר למטה
+    for start, end, label in zip(start_times, end_times, true_labels):
+        if label == 1:
+            plt.plot([start, end], [-0.02, -0.02], color='black', linewidth=4)
             
-        fig.suptitle(f"🎬 EXPERIMENT TIMELINE: {scenario_name}", fontsize=14, fontweight='bold', y=0.98)
-        
-        for idx, (rec_name, windows) in enumerate(sorted(recordings.items())):
-            ax = axes[idx]
-            windows.sort(key=lambda x: x['time_sec'])
-            
-            times_sec = np.array([w['time_sec'] for w in windows])
-            y_values = [w['true'] for w in windows]
-            colors = [w['color'] for w in windows]
-            probs = [w['prob'] for w in windows]
-            
-            # ציור קו מנחה שמחבר את רצף חלונות הזמן
-            ax.plot(times_sec, y_values, color='gray', linestyle='--', alpha=0.2, lw=1.0)
-            
-            # הוספת קו רציף קטן להצגת מגמת ההסתברות המקורית (כמו ב-Inference)
-            ax.plot(times_sec, probs, color='blue', alpha=0.4, linewidth=1.2, label='Confidence Trend')
-            
-            # 📌 הוספת קו ה-Threshold האופקי המבוקש
-            ax.axhline(y=threshold, color='red', linestyle=':', alpha=0.6, linewidth=1.5, label=f'Threshold ({threshold})')
-            
-            visible_labels = set()
-            for i in range(len(windows)):
-                col = colors[i]
-                lbl = windows[i]['label_text']
-                current_time = times_sec[i]
-                
-                if lbl in visible_labels:
-                    lbl = "_" + lbl
-                else:
-                    visible_labels.add(lbl)
-                
-                # ציור נקודת הציון (GT וסיווג)
-                ax.scatter(current_time, y_values[i], color=col, s=80, edgecolors='black', linewidths=0.8, zorder=3, label=lbl)
-                
-                # אם מדובר ב-False Alarm, נוסיף בלוט צהוב עם הזמן המדויק
-                if col == '#d62728':
-                    minutes = int(current_time // 60)
-                    seconds = current_time % 60
-                    time_str = f"{minutes}:{seconds:05.2f}"
-                    
-                    ax.annotate(time_str, 
-                                xy=(current_time, y_values[i]),
-                                xytext=(0, 15), 
-                                textcoords='offset points', 
-                                ha='center', 
-                                va='bottom',
-                                fontsize=8, 
-                                color='darkred', 
-                                fontweight='bold',
-                                bbox=dict(boxstyle='round,pad=0.2', fc='yellow', alpha=0.7, ec='red', lw=0.5),
-                                arrowprops=dict(arrowstyle="->", color='red', lw=0.5))
-                    
-                    print(f"  ❌ [FA] File: {rec_name:<35} | Audacity Time: {time_str} ({current_time:.2f}s)")
-            
-            ax.set_title(f"🎵 Recording File: {rec_name}", fontsize=10, fontweight='bold', color='navy', loc='left')
-            ax.set_yticks([0, 1])
-            ax.set_yticklabels(['Background (0)', 'Drone (1)'], fontsize=9, fontweight='bold')
-            ax.set_xlabel("Real Audio Time (Seconds)", fontsize=9)
-            
-            if len(times_sec) > 0:
-                ax.set_xlim([-10, max(times_sec) + 30])
-                
-            ax.set_ylim([-0.3, 1.55])
-            ax.grid(True, linestyle=':', alpha=0.5)
-            
-            if idx == 0:
-                ax.legend(loc='upper right', bbox_to_anchor=(1.15, 1.2), fontsize=8, fancybox=True, shadow=True)
-                
-        plt.tight_layout()
-        plt.subplots_adjust(top=0.92) 
-        
-        save_path = os.path.join(output_dir, f"new_test_timeline_{scenario_name}.png")
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        plt.close(fig)  
-        print(f"  🎯 Saved Image for [{scenario_name}] -> {save_path}")
+    # הגדרות הגרף
+    file_name = os.path.basename(file_path)
+    plt.title(f"Drone Detection for: {file_name} {title_suffix}")
+    plt.xlabel("Time (seconds)")
+    plt.ylabel("Probability")
+    plt.ylim(-0.05, 1.05)
+    plt.xlim(0, duration)
+    plt.grid(True, linestyle='-', alpha=0.5)
+    
+    # תיקון ה-Import השגוי כאן:
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Line2D([0], [0], color='blue', lw=2, label='Drone Probability'),
+        Line2D([0], [0], color='red', lw=2, linestyle='--', label=f'Threshold ({threshold})'),
+        Patch(facecolor='green', edgecolor='none', alpha=0.3, label='Detection (Predicted Drone)'),
+        Line2D([0], [0], color='black', lw=4, label='Ground Truth (Real Drone)')
+    ]
+    plt.legend(handles=legend_elements, loc='upper right')
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, bbox_inches='tight')
+        print(f"Plot saved to: {save_path}")
+        plt.close()
+    else:
+        plt.show()
 
 # DATA CONFIG
 DATA_DIRECTORIES = [
     {'name': '2026.04.28_omesi',   'path': r"/Users/deviceone/Documents/data/2026.04.28_omesi/raw_extracted_segments"},
-    {'name': '2026.05.01_omesi',   'path': r"/Users/deviceone/Documents/data/2026.05.01_omesi/raw_extracted_segments"},
+    # {'name': '2026.05.01_omesi',   'path': r"/Users/deviceone/Documents/data/2026.05.01_omesi/raw_extracted_segments"},
     # {'name': 'dregon',             'path': r"/Users/deviceone/Documents/data/dregon/raw_extracted_segments"},
     # {'name': 'nasa_2',             'path': r"/Users/deviceone/Documents/data/nasa_2/raw_extracted_segments"},
     # {'name': 'tut',                'path': r"/Users/deviceone/Documents/data/tut/raw_extracted_segments"},
@@ -336,20 +269,46 @@ if __name__ == "__main__":
         
     custom_preds = (smoothed_probs >= chosen_threshold).astype(int)
     
-    # 1. הדפסת הטבלה המסכמת
     analyze_model_errors(y_test, custom_preds, scenarios_test)
     
-    # 2. הרצת פונקציית הפלוטים המלאה לכל הניסויים וההקלטות עם העברת סף הגילוי
-    plot_scenarios_timeline_by_recordings(
-        y_test=y_test,
-        y_probs=y_probs,
-        custom_preds=custom_preds,
-        scenarios_test=scenarios_test,
-        paths_test=file_paths_test,
-        timestamps_test=timestamps_test,
-        threshold=chosen_threshold, # 📌 הועבר כאן
-        output_dir=MODEL_OUTPUT_DIR
-    )
+    # --- הפקת הגרף עבור קובץ דוגמה ---
+    print("\n📈 Creating inference-style plot for a sample file...")
+    example_file = None
+    
+    for file_path in np.unique(file_paths_test):
+        mask = (file_paths_test == file_path)
+        file_y_true = y_test[mask]
+        file_custom_preds = custom_preds[mask]
+        
+        has_errors = np.any((file_y_true == 0) & (file_custom_preds == 1)) or \
+                     np.any((file_y_true == 1) & (file_custom_preds == 0))
+        
+        if has_errors:
+            example_file = file_path
+            break
+            
+    if example_file is None and len(file_paths_test) > 0:
+        example_file = file_paths_test[0]
+        
+    if example_file:
+        mask = (file_paths_test == example_file)
+        file_timestamps = timestamps_test[mask]
+        file_y_true = y_test[mask]
+        file_smoothed_probs = smoothed_probs[mask]
+        
+        save_filename = os.path.basename(example_file).replace('.', '_') + "_detection_plot.png"
+        save_plot_path = os.path.join(MODEL_OUTPUT_DIR, save_filename)
+        
+        plot_detection_results(
+            example_file, 
+            file_timestamps, 
+            file_y_true, 
+            file_smoothed_probs, 
+            chosen_threshold,
+            "(Test Set Sample with Errors)",
+            save_path=save_plot_path
+        )
+    else:
+        print("No suitable file found in test set to plot.")
 
-    # 3. שמירת המודל
     save_trained_model_as_pickle(model_bin, os.path.join(MODEL_OUTPUT_DIR, "2s_model_omesi.pickle"))
