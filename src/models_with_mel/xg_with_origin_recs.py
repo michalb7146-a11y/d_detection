@@ -273,13 +273,13 @@ def plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenari
 DATA_DIRECTORIES = [
     {'name': '2026.04.28_omesi',   'path': r"/Users/deviceone/Documents/data/2026.04.28_omesi/raw_extracted_segments"},
     {'name': '2026.05.01_omesi',   'path': r"/Users/deviceone/Documents/data/2026.05.01_omesi/raw_extracted_segments"},
-    # {'name': 'dregon',             'path': r"/Users/deviceone/Documents/data/dregon/raw_extracted_segments"},
-    # {'name': 'nasa_2',             'path': r"/Users/deviceone/Documents/data/nasa_2/raw_extracted_segments"},
-    # {'name': 'tut',                'path': r"/Users/deviceone/Documents/data/tut/raw_extracted_segments"},
-    # {'name': 'ESC-50',             'path': r"/Users/deviceone/Documents/data/ESC-50/raw_extracted_segments"},
-    # {'name': 'kakadoo_train',      'path': r"/Users/deviceone/Documents/data/2026.06.09_kakadoo_SPLITTED/train_set"},
-    # {'name': 'manatees_train',     'path': r"/Users/deviceone/Documents/data/2026.06.07_manatees/SPLITTED/train_set"},
-    # {'name': 'swan',               'path': r"/Users/deviceone/Documents/data/2026.06.17_swan/SPLITTED/train_set"}
+    {'name': 'dregon',             'path': r"/Users/deviceone/Documents/data/dregon/raw_extracted_segments"},
+    {'name': 'nasa_2',             'path': r"/Users/deviceone/Documents/data/nasa_2/raw_extracted_segments"},
+    {'name': 'tut',                'path': r"/Users/deviceone/Documents/data/tut/raw_extracted_segments"},
+    {'name': 'ESC-50',             'path': r"/Users/deviceone/Documents/data/ESC-50/raw_extracted_segments"},
+    {'name': 'kakadoo_train',      'path': r"/Users/deviceone/Documents/data/2026.06.09_kakadoo_SPLITTED/train_set"},
+    {'name': 'manatees_train',     'path': r"/Users/deviceone/Documents/data/2026.06.07_manatees/SPLITTED/train_set"},
+    {'name': 'swan',               'path': r"/Users/deviceone/Documents/data/2026.06.17_swan/SPLITTED/train_set"}
 ]
 MODEL_OUTPUT_DIR = r"/Users/deviceone/Documents/d_detection/models"
 binary_map = {0: ['raw_background'], 1: ['raw_drone']}
@@ -335,11 +335,7 @@ if __name__ == "__main__":
         smoothed_probs[i] = np.mean(y_probs[max(0, i - 3):i + 1])
         
     custom_preds = (smoothed_probs >= chosen_threshold).astype(int)
-    
-    # 1. הדפסת הטבלה המסכמת
-    analyze_model_errors(y_test, custom_preds, scenarios_test)
-    
-    # 2. הרצת פונקציית הפלוטים המלאה לכל הניסויים וההקלטות עם העברת סף הגילוי
+        
     plot_scenarios_timeline_by_recordings(
         y_test=y_test,
         y_probs=y_probs,
@@ -351,5 +347,6 @@ if __name__ == "__main__":
         output_dir=MODEL_OUTPUT_DIR
     )
 
-    # 3. שמירת המודל
+    analyze_model_errors(y_test, custom_preds, scenarios_test)
+
     save_trained_model_as_pickle(model_bin, os.path.join(MODEL_OUTPUT_DIR, "2s_model_omesi.pickle"))

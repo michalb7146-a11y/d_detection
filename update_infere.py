@@ -13,10 +13,9 @@ from collections import defaultdict
 # ======================================================================
 # 🛠️ CONFIGURATION - הגדרות נתיבים ומילוני מיפוי
 # ======================================================================
-# NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo_just_background/SPLITTED/test_set"
-NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.07_manatees/SPLITTED/test_set" 
+# NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.07_manatees/SPLITTED/test_set" 
 # NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.17_swan/SPLITTED/test_set"
-# NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo/raw_extracted_segments"
+NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo/raw_extracted_segments"
 MODEL_PICKLE_PATH = r"/Users/deviceone/Documents/d_detection/models/2s_model_omesi.pickle"
 MODEL_OUTPUT_DIR = r"/Users/deviceone/Documents/d_detection/models" # נתיב לשמירת גרפי ה-Timeline
 CHOSEN_THRESHOLD = 0.8  
