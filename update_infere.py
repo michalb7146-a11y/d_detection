@@ -16,9 +16,9 @@ from collections import defaultdict
 # NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.07_manatees/SPLITTED/test_set" 
 # NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.17_swan/SPLITTED/test_set"
 NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo/raw_extracted_segments"
-MODEL_PICKLE_PATH = r"/Users/deviceone/Documents/d_detection/models/2s_model_omesi.pickle"
-MODEL_OUTPUT_DIR = r"/Users/deviceone/Documents/d_detection/models" # נתיב לשמירת גרפי ה-Timeline
-CHOSEN_THRESHOLD = 0.8  
+MODEL_PICKLE_PATH = r"/Users/deviceone/Documents/d_detection/models/2s_model.pickle"
+MODEL_OUTPUT_DIR = r"/Users/deviceone/Documents/d_detection/models" # נתיב לשמירת גרפי ה-Timelineפי ה-Timeline
+CHOSEN_THRESHOLD = 0.9
 
 binary_map = {
     0: ['raw_background'], 
@@ -30,7 +30,7 @@ binary_map = {
 # ======================================================================
 def extract_windows_from_stft(file_path):
     """
-    📌 SLIDING WINDOW MEL-SPECTROGRAM FEATURE EXTRACTION WITH HIGH-FREQUENCY FILTERING
+    📌 SLIDING WINDOW MEL-SPECTROGRAM FEATURE EXTRACTION WITH HIGH-FREQUENCY & LOW-FREQUENCY FILTERING
     """
     target_sr = 16000
     y, sr = librosa.load(file_path, sr=target_sr, mono=False)
@@ -47,10 +47,10 @@ def extract_windows_from_stft(file_path):
     hop_length = 512
     n_mels = 64
     
-    # חילוץ Mel-Spectrogram חסום עד 2000Hz (מסנן את הצרצרים)
+    # 📌 עדכון: הוספת fmin=150 (זהה לחלוטין לקוד האימון החדש)
     mel_spec_power = librosa.feature.melspectrogram(
         y=y, sr=target_sr, n_fft=n_fft, hop_length=hop_length, 
-        n_mels=n_mels, fmax=2000
+        n_mels=n_mels, fmin=150, fmax=2000
     )
     # המרה לדציבלים
     mel_spec_db = librosa.power_to_db(mel_spec_power + 1e-5)
@@ -121,7 +121,6 @@ def load_new_test_data(base_path, label_folder_map):
                 try:
                     feats_list = extract_windows_from_stft(f)
                     if len(feats_list) == 0:
-                        print(f"⚠️ File too short or empty (less than 2 seconds): {os.path.basename(f)}")
                         continue
                         
                     for win_idx, feat in enumerate(feats_list):
@@ -142,7 +141,6 @@ def load_new_test_data(base_path, label_folder_map):
 def print_detailed_errors(y_test, preds, show_matrix=True):
     if not show_matrix:
         return
-    # 🛠️ תיקון: הגדרת labels=[0, 1] למניעת קריסה במחלקה בודדת
     cm = confusion_matrix(y_test, preds, labels=[0, 1])
     if cm.size == 4:
         tn, fp, fn, tp = cm.ravel()
@@ -161,7 +159,6 @@ def print_detailed_errors(y_test, preds, show_matrix=True):
         print(cm)
 
 def plot_confusion_matrix_graphic(y_test, preds):
-    # 🛠️ תיקון: הגדרת labels=[0, 1] למניעת קריסה במחלקה בודדת
     cm = confusion_matrix(y_test, preds, labels=[0, 1])
     
     row_sums = cm.sum(axis=1)[:, np.newaxis]
@@ -192,7 +189,6 @@ def plot_confusion_matrix_graphic(y_test, preds):
     plt.show()
 
 def plot_log_roc_curve(model, X_test, y_test, target_class_index=1):
-    # בדיקה אם יש לנו לפחות שתי מחלקות בשביל גרף ה-ROC
     if len(np.unique(y_test)) < 2:
         print("⚠️ Skipping ROC Curve plot: ROC calculation requires both background and drone samples in the dataset.")
         return
@@ -215,7 +211,7 @@ def plot_log_roc_curve(model, X_test, y_test, target_class_index=1):
     plt.grid(True, which="both", ls="-", alpha=0.3)
     plt.show()
 
-def plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenarios_test, paths_test, timestamps_test):
+def plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenarios_test, paths_test, timestamps_test, threshold, output_dir):
     nested_data = defaultdict(lambda: defaultdict(list))
     
     for i in range(len(y_test)):
@@ -225,6 +221,7 @@ def plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenari
         
         true_label = y_test[i]
         pred_label = custom_preds[i]
+        prob = y_probs[i]
         
         if true_label == 1 and pred_label == 1:
             color = '#2ca02c'   
@@ -243,13 +240,11 @@ def plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenari
             'true': true_label,
             'color': color,
             'label_text': label_text,
-            'time_sec': timestamps_test[i]
+            'time_sec': timestamps_test[i],
+            'prob': prob
         })
 
-    print("\n" + "="*80)
-    print("🎯 LOGGING FALSE ALARM TIMESTAMPS FOR AUDACITY INSPECTION (MATCHED 100%):")
-    print("="*80)
-
+    # ההדפסות המציפות בטרמינל הוסרו לבקשתך ❌
     for scenario_name, recordings in sorted(nested_data.items()):
         num_recordings = len(recordings)
         if num_recordings == 0: continue
@@ -267,8 +262,15 @@ def plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenari
             times_sec = np.array([w['time_sec'] for w in windows])
             y_values = [w['true'] for w in windows]
             colors = [w['color'] for w in windows]
+            probs = [w['prob'] for w in windows]
             
             ax.plot(times_sec, y_values, color='gray', linestyle='--', alpha=0.2, lw=1.0)
+            
+            # הוספת קו מגמת הסתברות (הקו הכחול)
+            ax.plot(times_sec, probs, color='blue', alpha=0.4, linewidth=1.2, label='Confidence Trend')
+            
+            # הוספת קו ה-Threshold האופקי האדום
+            ax.axhline(y=threshold, color='red', linestyle=':', alpha=0.6, linewidth=1.5, label=f'Threshold ({threshold})')
             
             visible_labels = set()
             for i in range(len(windows)):
@@ -283,6 +285,7 @@ def plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenari
                 
                 ax.scatter(current_time, y_values[i], color=col, s=80, edgecolors='black', linewidths=0.8, zorder=3, label=lbl)
                 
+                # תיוג בלוני ה-FA הצהובים על הגרף (נשמר ועודכן עם חץ קטן)
                 if col == '#d62728':
                     minutes = int(current_time // 60)
                     seconds = current_time % 60
@@ -290,16 +293,15 @@ def plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenari
                     
                     ax.annotate(time_str, 
                                 xy=(current_time, y_values[i]),
-                                xytext=(0, 10), 
+                                xytext=(0, 15), 
                                 textcoords='offset points', 
                                 ha='center', 
                                 va='bottom',
                                 fontsize=8, 
                                 color='darkred', 
                                 fontweight='bold',
-                                bbox=dict(boxstyle='round,pad=0.2', fc='yellow', alpha=0.7, ec='red', lw=0.5))
-                    
-                    print(f"  ❌ [FA] File: {rec_name:<35} | Audacity Time: {time_str} ({current_time:.2f}s)")
+                                bbox=dict(boxstyle='round,pad=0.2', fc='yellow', alpha=0.7, ec='red', lw=0.5),
+                                arrowprops=dict(arrowstyle="->", color='red', lw=0.5))
             
             ax.set_title(f"🎵 Recording File: {rec_name}", fontsize=10, fontweight='bold', color='navy', loc='left')
             ax.set_yticks([0, 1])
@@ -309,7 +311,7 @@ def plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenari
             if len(times_sec) > 0:
                 ax.set_xlim([-10, max(times_sec) + 30])
                 
-            ax.set_ylim([-0.3, 1.45])
+            ax.set_ylim([-0.3, 1.55])
             ax.grid(True, linestyle=':', alpha=0.5)
             
             if idx == 0:
@@ -318,7 +320,7 @@ def plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenari
         plt.tight_layout()
         plt.subplots_adjust(top=0.92) 
         
-        save_path = os.path.join(MODEL_OUTPUT_DIR, f"new_test_timeline_{scenario_name}.png")
+        save_path = os.path.join(output_dir, f"new_test_timeline_{scenario_name}.png")
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         plt.close(fig)  
         print(f"  🎯 Saved Image for [{scenario_name}] -> {save_path}")
@@ -343,10 +345,15 @@ if __name__ == "__main__":
         print(f"\n✅ Data generation complete. Total windows for testing: {len(X_new)}")
         
         y_probs = loaded_model.predict_proba(X_new)[:, 1]
-        custom_preds = (y_probs >= CHOSEN_THRESHOLD).astype(int)
+        
+        # 📌 עדכון: החלקה ל-2 שניות מלאות (8 חלונות אחורה) כדי שההחלטה תתקבל על רצף יציב
+        smoothed_probs = np.zeros_like(y_probs)
+        for i in range(len(y_probs)):
+            smoothed_probs[i] = np.mean(y_probs[max(0, i - 8):i + 1])
+            
+        custom_preds = (smoothed_probs >= CHOSEN_THRESHOLD).astype(int)
         
         print(f"\n--- Performance Evaluation (Threshold = {CHOSEN_THRESHOLD}) ---")
-        # 🛠️ תיקון: הגדרת labels=[0, 1] כדי למנוע קריסה כאשר הדאטהסט חד-מחלקתי
         print(classification_report(y_new, custom_preds, labels=[0, 1], target_names=['Background', 'Drone'], zero_division=0))
         
         print_detailed_errors(y_new, custom_preds)
@@ -355,7 +362,16 @@ if __name__ == "__main__":
         plot_confusion_matrix_graphic(y_new, custom_preds)
         
         print("📈 Plotting Log ROC Curve...")
-        plot_log_roc_curve(loaded_model, X_new, y_new, target_class_index=1)
+        plot_log_curve = plot_log_roc_curve(loaded_model, X_new, y_new, target_class_index=1)
         
-        print("📈 Plotting timelines matched perfectly to Audacity timelines (Minutes:Seconds)...")
-        plot_scenarios_timeline_by_recordings(y_new, y_probs, custom_preds, scenarios_new, paths_new, timestamps_new)
+        print("📈 Saving timelines images matched perfectly to Audacity timelines (Minutes:Seconds)...")
+        plot_scenarios_timeline_by_recordings(
+            y_test=y_new, 
+            y_probs=y_probs, 
+            custom_preds=custom_preds, 
+            scenarios_test=scenarios_new, 
+            paths_test=paths_new, 
+            timestamps_test=timestamps_new,
+            threshold=CHOSEN_THRESHOLD,
+            output_dir=MODEL_OUTPUT_DIR
+        )

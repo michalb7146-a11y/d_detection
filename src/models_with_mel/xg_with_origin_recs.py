@@ -20,7 +20,7 @@ def save_trained_model_as_pickle(model, filename="2s_model_omesi.pickle"):
 
 def extract_windows_from_stft(file_path):
     """
-    📌 FREQUENCY FILTERING BACK TO 2000Hz - BASED ON SPECTROGRAM ANALYSIS
+    📌 FREQUENCY FILTERING (150Hz - 2000Hz) TO REMOVE SUB-BASS WIND NOISE & CRICKETS
     """
     target_sr = 16000
     y, sr = librosa.load(file_path, sr=target_sr, mono=False)
@@ -35,9 +35,10 @@ def extract_windows_from_stft(file_path):
     hop_length = 512
     n_mels = 64
     
+    # 📌 עדכון: הוספת fmin=150 כדי לסנן את רעש הרקע הסטטי בתחתית הספקטרוגרמה
     mel_spec_power = librosa.feature.melspectrogram(
         y=y, sr=target_sr, n_fft=n_fft, hop_length=hop_length, 
-        n_mels=n_mels, fmax=2000
+        n_mels=n_mels, fmin=150, fmax=2000
     )
     mel_spec_db = librosa.power_to_db(mel_spec_power + 1e-5)
     
@@ -145,8 +146,6 @@ def analyze_model_errors(y_test, custom_preds, scenarios_test):
         print(f"{scenario:<{scen_w}} | {tot_bg:<{bg_w}} | {fa_str:<{fa_w}} | {tot_dr:<{dr_w}} | {md_str:<{md_w}}")
     print("=" * len(header) + "\n")
 
-# --- פונקציית הפקת הגרפים המרוכזת עם סימון ה-Threshold ---
-
 def plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenarios_test, paths_test, timestamps_test, threshold, output_dir):
     nested_data = defaultdict(lambda: defaultdict(list))
     
@@ -204,13 +203,8 @@ def plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenari
             colors = [w['color'] for w in windows]
             probs = [w['prob'] for w in windows]
             
-            # ציור קו מנחה שמחבר את רצף חלונות הזמן
             ax.plot(times_sec, y_values, color='gray', linestyle='--', alpha=0.2, lw=1.0)
-            
-            # הוספת קו רציף קטן להצגת מגמת ההסתברות המקורית (כמו ב-Inference)
             ax.plot(times_sec, probs, color='blue', alpha=0.4, linewidth=1.2, label='Confidence Trend')
-            
-            # 📌 הוספת קו ה-Threshold האופקי המבוקש
             ax.axhline(y=threshold, color='red', linestyle=':', alpha=0.6, linewidth=1.5, label=f'Threshold ({threshold})')
             
             visible_labels = set()
@@ -224,10 +218,8 @@ def plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenari
                 else:
                     visible_labels.add(lbl)
                 
-                # ציור נקודת הציון (GT וסיווג)
                 ax.scatter(current_time, y_values[i], color=col, s=80, edgecolors='black', linewidths=0.8, zorder=3, label=lbl)
                 
-                # אם מדובר ב-False Alarm, נוסיף בלוט צהוב עם הזמן המדויק
                 if col == '#d62728':
                     minutes = int(current_time // 60)
                     seconds = current_time % 60
@@ -327,15 +319,17 @@ if __name__ == "__main__":
     print(f"--- Training Robust Model (fmax=2000Hz) on {len(X_train)} windows... ---")
     model_bin.fit(X_train, y_train)
     
-    chosen_threshold = 0.55
+    chosen_threshold = 0.8
     y_probs = model_bin.predict_proba(X_test)[:, 1]
     
+    # 📌 עדכון: החלקה ל-2 שניות מלאות (8 חלונות אחורה) כדי שהגילוי יישאר יציב ולא ייפול
     smoothed_probs = np.zeros_like(y_probs)
     for i in range(len(y_probs)):
-        smoothed_probs[i] = np.mean(y_probs[max(0, i - 3):i + 1])
+        smoothed_probs[i] = np.mean(y_probs[max(0, i - 8):i + 1])
         
     custom_preds = (smoothed_probs >= chosen_threshold).astype(int)
         
+    # הפקת פלוטים
     plot_scenarios_timeline_by_recordings(
         y_test=y_test,
         y_probs=y_probs,
@@ -343,10 +337,12 @@ if __name__ == "__main__":
         scenarios_test=scenarios_test,
         paths_test=file_paths_test,
         timestamps_test=timestamps_test,
-        threshold=chosen_threshold, # 📌 הועבר כאן
+        threshold=chosen_threshold, 
         output_dir=MODEL_OUTPUT_DIR
     )
 
+    # הדפסת טבלה מסכמת
     analyze_model_errors(y_test, custom_preds, scenarios_test)
 
+    # שמירת המודל המעודכן
     save_trained_model_as_pickle(model_bin, os.path.join(MODEL_OUTPUT_DIR, "2s_model_omesi.pickle"))
