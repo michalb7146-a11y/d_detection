@@ -92,10 +92,10 @@ if __name__ == '__main__':
     # FOLDER_ID = "1TZQOQRGElgZ_NBiDp_pbRnISkz-eAloj" # 551 device 2
     # FOLDER_ID = "1Gt5r0INiGwcIxtI3Z-TZzHhdZYjxwmHG" # AuDrok from open source data
     # FOLDER_ID = "1Q1XwJsL0up-SzBPxhfBoI4ERTTIBKEKr" # 2026.05.07_acoustics
-    FOLDER_ID = "12bwHby4EAvHmjalmxh74wALDiGt6zIAb" # kakadoo
+    FOLDER_ID = "17iOFQMPrj9rOiuyyQhWjXZRUeuiLDu7l"
     
     # הנתיב המקומי במחשב שבו תרצו לשמור את התיקייה
-    LOCAL_DOWNLOAD_PATH = r"/Users/deviceone/Documents"
+    LOCAL_DOWNLOAD_PATH = r"/Users/deviceone/Documents/b"
     
     print("מתחיל בהורדת התיקייה...")
     download_folder(service, FOLDER_ID, LOCAL_DOWNLOAD_PATH)

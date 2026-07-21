@@ -263,15 +263,19 @@ def plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenari
 
 # DATA CONFIG
 DATA_DIRECTORIES = [
-    {'name': '2026.04.28_omesi',   'path': r"/Users/deviceone/Documents/data/2026.04.28_omesi/raw_extracted_segments"},
-    {'name': '2026.05.01_omesi',   'path': r"/Users/deviceone/Documents/data/2026.05.01_omesi/raw_extracted_segments"},
-    {'name': 'dregon',             'path': r"/Users/deviceone/Documents/data/dregon/raw_extracted_segments"},
-    {'name': 'nasa_2',             'path': r"/Users/deviceone/Documents/data/nasa_2/raw_extracted_segments"},
-    {'name': 'tut',                'path': r"/Users/deviceone/Documents/data/tut/raw_extracted_segments"},
-    {'name': 'ESC-50',             'path': r"/Users/deviceone/Documents/data/ESC-50/raw_extracted_segments"},
-    {'name': 'kakadoo_train',      'path': r"/Users/deviceone/Documents/data/2026.06.09_kakadoo_SPLITTED/train_set"},
-    {'name': 'manatees_train',     'path': r"/Users/deviceone/Documents/data/2026.06.07_manatees/SPLITTED/train_set"},
-    {'name': 'swan',               'path': r"/Users/deviceone/Documents/data/2026.06.17_swan/SPLITTED/train_set"}
+    {'name': '2026.04.28_omesi',               'path': r"/Users/deviceone/Documents/data/2026.04.28_omesi/raw_extracted_segments"},
+    {'name': '2026.05.01_omesi',               'path': r"/Users/deviceone/Documents/data/2026.05.01_omesi/raw_extracted_segments"},
+    {'name': 'dregon',                         'path': r"/Users/deviceone/Documents/data/dregon/raw_extracted_segments"},
+    {'name': 'nasa_2',                         'path': r"/Users/deviceone/Documents/data/nasa_2/raw_extracted_segments"},
+    {'name': 'tut',                            'path': r"/Users/deviceone/Documents/data/tut/raw_extracted_segments"},
+    {'name': 'ESC-50',                         'path': r"/Users/deviceone/Documents/data/ESC-50/raw_extracted_segments"},
+    {'name': 'kakadoo_train',                  'path': r"/Users/deviceone/Documents/data/2026.06.09_kakadoo_SPLITTED/train_set"},
+    {'name': 'manatees_train',                 'path': r"/Users/deviceone/Documents/data/2026.06.07_manatees/SPLITTED/train_set"},
+    {'name': 'swan',                           'path': r"/Users/deviceone/Documents/data/2026.06.17_swan/SPLITTED/train_set"},
+    {'name': '2026.05.18_ostrich_attack_runs', 'path': r"/Users/deviceone/Documents/data/2026.05.18_ostrich_attack_runs/raw_extracted_segments"},
+    {'name': '2026.06.02_snake',               'path': r"/Users/deviceone/Documents/data/2026.06.02_snake/raw_extracted_segments"},
+    {'name': '2026.05.06_nautilus_1_snake',    'path': r"/Users/deviceone/Documents/data/2026.05.06_nautilus_1_snake/raw_extracted_segments"},
+    {'name': '',                               'path': r"/Users/deviceone/Documents/data/2026.05.13_nautilus_2_snake/raw_extracted_segments"}
 ]
 MODEL_OUTPUT_DIR = r"/Users/deviceone/Documents/d_detection/models"
 binary_map = {0: ['raw_background'], 1: ['raw_drone']}

@@ -26,9 +26,25 @@ from tqdm import tqdm
 # CSV_DIR = r"/Users/deviceone/Documents/data/2026.06.17_swan/tagged_2026.06.17_swan"
 # OUTPUT_DIR = r"/Users/deviceone/Documents/data/2026.06.17_swan/raw_extracted_segments"
 
-AUDIO_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo/audio/Sensor_1"
-CSV_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo/tagged_2026.06.09_kakadoo/Sensor_1"
-OUTPUT_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo/raw_extracted_segments"
+# AUDIO_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo/audio/Sensor_1"
+# CSV_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo/tagged_2026.06.09_kakadoo/Sensor_1"
+# OUTPUT_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo/raw_extracted_segments"
+
+# AUDIO_DIR = r"/Users/deviceone/Documents/data/2026.05.18_ostrich_attack_runs/audio"
+# CSV_DIR = r"/Users/deviceone/Documents/data/2026.05.18_ostrich_attack_runs/tagged_2026.05.18_ostrich_attack_runs"
+# OUTPUT_DIR = r"/Users/deviceone/Documents/data/2026.05.18_ostrich_attack_runs/raw_extracted_segments"
+
+# AUDIO_DIR = r"/Users/deviceone/Documents/data/2026.06.02_snake/audio"
+# CSV_DIR = r"/Users/deviceone/Documents/data/2026.06.02_snake/tagged_2026.06.02_snake"
+# OUTPUT_DIR = r"/Users/deviceone/Documents/data/2026.06.02_snake/raw_extracted_segments"
+
+# AUDIO_DIR = r"/Users/deviceone/Documents/data/2026.05.06_nautilus_1_snake/audio"
+# CSV_DIR = r"/Users/deviceone/Documents/data/2026.05.06_nautilus_1_snake/tagged_2026.05.06_nautilus_1_snake"
+# OUTPUT_DIR = r"/Users/deviceone/Documents/data/2026.05.06_nautilus_1_snake/raw_extracted_segments"
+
+AUDIO_DIR = r"/Users/deviceone/Documents/data/2026.05.13_nautilus_2_snake/audio"
+CSV_DIR = r"/Users/deviceone/Documents/data/2026.05.13_nautilus_2_snake/tagged_2026.05.13_nautilus_2_snake"
+OUTPUT_DIR = r"/Users/deviceone/Documents/data/2026.05.13_nautilus_2_snake/raw_extracted_segments"
 
 SR = 16000 
 

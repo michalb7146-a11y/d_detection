@@ -13,12 +13,13 @@ from collections import defaultdict
 # ======================================================================
 # 🛠️ CONFIGURATION - הגדרות נתיבים ומילוני מיפוי
 # ======================================================================
-# NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.07_manatees/SPLITTED/test_set" 
+NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.07_manatees/SPLITTED/test_set" 
 # NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.17_swan/SPLITTED/test_set"
-NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo/raw_extracted_segments"
+# NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo/raw_extracted_segments"
+# NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.05.18_ostrich_attack_runs/raw_extracted_segments"
 MODEL_PICKLE_PATH = r"/Users/deviceone/Documents/d_detection/models/2s_model.pickle"
 MODEL_OUTPUT_DIR = r"/Users/deviceone/Documents/d_detection/models" # נתיב לשמירת גרפי ה-Timelineפי ה-Timeline
-CHOSEN_THRESHOLD = 0.9
+CHOSEN_THRESHOLD = 0.8
 
 binary_map = {
     0: ['raw_background'], 
@@ -244,7 +245,6 @@ def plot_scenarios_timeline_by_recordings(y_test, y_probs, custom_preds, scenari
             'prob': prob
         })
 
-    # ההדפסות המציפות בטרמינל הוסרו לבקשתך ❌
     for scenario_name, recordings in sorted(nested_data.items()):
         num_recordings = len(recordings)
         if num_recordings == 0: continue
