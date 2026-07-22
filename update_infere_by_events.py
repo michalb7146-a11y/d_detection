@@ -17,7 +17,8 @@ from tqdm import tqdm
 # 🛠️ GLOBAL CONFIGURATION
 # ======================================================================
 # NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.05.06_nautilus_1_snake/raw_extracted_segments"
-NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo/raw_extracted_segments" 
+# NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.09_kakadoo/raw_extracted_segments" 
+NEW_TEST_DATA_DIR = r"/Users/deviceone/Documents/data/2026.06.07_manatees/raw_extracted_segments"
 MODEL_PICKLE_PATH = r"/Users/deviceone/Documents/d_detection/models/2s_model.pickle"
 MODEL_OUTPUT_DIR = r"/Users/deviceone/Documents/d_detection/models" 
 CHOSEN_THRESHOLD = 0.8
@@ -207,7 +208,6 @@ def plot_dual_confusion_matrices(y_test, preds, total_true_events, detected_even
     ]
     labels_events = np.asarray(labels_events).reshape(2,2)
     
-    # משתמשים בערכים האמיתיים של המערך רק בשביל הצבעים, התוויות דרוסות בצורה מילולית ברורה
     sns.heatmap(cm_events, annot=labels_events, fmt="", cmap="Greens", cbar=False,
                 xticklabels=["Background", "Drone"], yticklabels=["Background", "Drone"], ax=axes[1], 
                 annot_kws={"size": 11, "weight": "bold"})
@@ -339,7 +339,7 @@ def calculate_event_level_metrics(paths_new, timestamps_new, custom_preds, y_new
     """
     VALID_DRONE_KEYWORDS = ['drone', 'רחפן', 'fly', 'flies', 'מעוף']
     parent_dir = os.path.dirname(base_test_dir)
-    tagged_folders = [f for f in os.listdir(parent_dir) if f.startswith("tagged") and os.path.isdir(os.path.join(parent_dir, f))]
+    tagged_folders = [f for f in os.listdir(parent_dir) if f.lower().startswith("tagged") and os.path.isdir(os.path.join(parent_dir, f))]
     
     if not tagged_folders:
         print("\n⚠️ Warning: Sibling directory starting with 'tagged' not found. Event metrics skipped.")
@@ -348,9 +348,14 @@ def calculate_event_level_metrics(paths_new, timestamps_new, custom_preds, y_new
     tagged_dir = os.path.join(parent_dir, tagged_folders[0])
     print(f"\n📂 Target tagging directory identified: {tagged_dir}")
 
+    # 🔄 שינוי: חיפוש רקורסיבי בעזרת os.walk כדי למצוא קבצים גם בתוך תתי-תיקיות
     label_files = []
-    for ext in ["*.csv", "*.CSV", "*.tsv", "*.TSV", "*.txt", "*.TXT"]:
-        label_files.extend(glob.glob(os.path.join(tagged_dir, ext)))
+    valid_extensions = ('.csv', '.tsv', '.txt')
+    for root, _, files in os.walk(tagged_dir):
+        for file in files:
+            if file.lower().endswith(valid_extensions):
+                label_files.append(os.path.join(root, file))
+
     if len(label_files) == 0: return None
 
     valid_files = [f for f in label_files if os.path.exists(f) and os.path.getsize(f) > 0]
